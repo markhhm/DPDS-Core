@@ -1,0 +1,10 @@
+language = "C"
+no_includes = true
+
+[export]
+exclude = ["packet"]
+
+[export.rename]
+# hacky solution for including "struct packet" and not only "packet"
+# in the methods since "struct" is omitted if no "packet" struct is emitted
+"packet" = "struct packet"

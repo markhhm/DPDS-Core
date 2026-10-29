@@ -73,6 +73,30 @@ Registered conversion fixture: natural duration 15 ms, native maximum delay
 The separate allowance test uses delta 5 ms, extension 150.6 ms and horizon
 165.6 ms. These are fixture values, not defaults for an arbitrary real queue.
 
+### Synthetic outage registration
+
+The separately authored fixtures `tests/fixtures/outage-drop.json` and
+`tests/fixtures/outage-hold.json` share `outage-source.csv`, under Apache-2.0.
+No measured Garcia sample or missing-sample interval defines these outages.
+
+| Parameter | Both registered fixtures |
+| --- | --- |
+| Constant propagation | 10 ms |
+| Down / up boundaries | Down on [200,300) ms, then up |
+| Original end | 1,000 ms |
+| delta / Q drain allowance | 0 / 50 ms |
+| Terminal extension / horizon | 60 / 1,060 ms |
+| Trace probability loss | Zero; outage drops are counted separately |
+
+The drop profile discards candidate deadlines 200 and 210 ms; deadline 310 ms
+survives. The hold profile releases those three candidates at 300, 300 and
+310 ms in source order, preserving original deadlines for error measurement.
+The integration test uses 800 kbit/s and 100 wire bytes per packet (1 ms
+service), with arrivals 189, 199 and 299 ms. Thus it independently predicts the
+three deadlines without queueing. TX gates are closed exactly on [200,300) ms;
+terminal coverage ends at 1,060 ms. Neither profile establishes hardware silence
+or cross-engine packet equality.
+
 OneWeb and Choi adapters await source-subset and feasibility decisions. Their
 raw data is not included. Source licenses and attribution remain as recorded
 in the inventory; code remains Apache-2.0.

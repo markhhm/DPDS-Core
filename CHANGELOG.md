@@ -10,6 +10,8 @@ fork has been released yet.
 
 ### Added
 
+- Separately registered synthetic outage drop/hold fixtures and a core integration
+  test for exact deadline, release, gate-boundary and finite-horizon behavior.
 - Finite terminal HOLD registration from actual converted maximum delay plus
   explicit delta/Q drain allowances, with horizon validation by the comparator.
 - Canonical paired Garcia pool manifests with DL-derived phase, source hashes,

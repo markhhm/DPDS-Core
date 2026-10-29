@@ -1,0 +1,38 @@
+{
+  "schema": "hng-trace-v1",
+  "source_id": "registered-synthetic-outage-hold",
+  "direction": "forward",
+  "units": "ns_owd",
+  "conversion": "{\"delta_ns\": 0, \"down_start_ns\": 200000000, \"extension_ns\": 60000000, \"outage_action\": \"hold\", \"queue_drain_ns\": 50000000, \"registration\": \"m3-synthetic-outage-v1\", \"source_license\": \"Apache-2.0\", \"t_max_ns\": 10000000, \"up_start_ns\": 300000000}",
+  "source_sha256": "38d66b2cdd3de9a6eea8512b7734f9db279f6cb0e54e48ddb1f4c6f0db9ee11a",
+  "splice_policy": "natural_hold",
+  "trace_epoch_ns": 0,
+  "time_scale": 1,
+  "profile": {
+    "end_ns": 1000000000,
+    "terminal": "hold_last_sample",
+    "terminal_horizon_ns": 1060000000,
+    "loss_seed": 0,
+    "outage_action": "hold",
+    "rows": [
+      {
+        "at_ns": 0,
+        "t_ns": 10000000,
+        "loss": "0",
+        "outage": false
+      },
+      {
+        "at_ns": 200000000,
+        "t_ns": 10000000,
+        "loss": "0",
+        "outage": true
+      },
+      {
+        "at_ns": 300000000,
+        "t_ns": 10000000,
+        "loss": "0",
+        "outage": false
+      }
+    ]
+  }
+}

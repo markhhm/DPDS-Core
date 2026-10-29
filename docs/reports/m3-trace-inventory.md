@@ -6,6 +6,10 @@ Date: 2026-10-29. Scope: task step 1 only. Status: inventory submitted for lead
 review; source conversion, cross-engine comparison and engine replay are pending.
 This report does not register new replay semantics or claim hardware validation.
 
+Historical inventory: the questions below were subsequently resolved by the
+[registered M3 semantics](../TRACE-SEMANTICS.md). Their implementation and
+updated verification are recorded in [the follow-up report](m3-registered-traces.md).
+
 ## Findings that need a decision first
 
 The existing Step 2 converter and the P1 engine do not currently implement the

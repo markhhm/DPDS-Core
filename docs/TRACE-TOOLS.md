@@ -176,6 +176,13 @@ checks the recorded horizon against the actual maximum delay and t+delta+Q
 registration. Coverage does not replace rate/storage validation or permit
 admission/drain beyond the declared half-open horizon.
 
+The separately registered `tests/fixtures/outage-drop.json` and
+`tests/fixtures/outage-hold.json` are synthetic input profiles, not Garcia
+conversion outputs. Their source, numeric bounds and expected releases are
+registered in [TRACE-SEMANTICS.md](TRACE-SEMANTICS.md#synthetic-outage-registration).
+`tests/registered_outages.rs` validates engine loading, release/drop counters,
+boundary gates and finite terminal coverage without DPDK or a NIC.
+
 ## Configured-row comparison
 
 ```text

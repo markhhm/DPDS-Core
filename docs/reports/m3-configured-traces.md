@@ -7,6 +7,10 @@ row comparison and late-run diagnostics. Source outage reconstruction, terminal
 HOLD coverage and engine FIFO/release equivalence remain deferred. This is not
 hardware precision or throughput evidence.
 
+This is the initial configured-conversion validation snapshot. The subsequent
+[registered-semantics implementation](m3-registered-traces.md) adds canonical
+eligibility, exact corridors, finite terminal HOLD and synthetic outages.
+
 ## Integration and implementation
 
 Integrated core commit `4655e81768f189970b0227a6782c7d767ab28c55` with a merge,

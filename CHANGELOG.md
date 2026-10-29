@@ -10,6 +10,9 @@ fork has been released yet.
 
 ### Added
 
+- Outage-drop regression preventing a discarded packet from creating a phantom
+  retained-deadline plateau, verified with a deliberately incorrect floor mutation.
+
 - Conversion recipe phase and canonical pool identity, with paired-source hash,
   phase, margin, gap and quantization checks; explicit diagnostic eligibility.
 

@@ -84,3 +84,47 @@ fn registered_synthetic_outages_match_deadline_and_gate_oracles() {
         assert_eq!(buffer.stats().storage_drops, 0);
     }
 }
+
+#[test]
+fn dropped_packet_does_not_create_phantom_deadline_plateau() {
+    let trace: TraceProfile = serde_json::from_value(serde_json::json!({
+        "end_ns":10000, "terminal":"error", "terminal_horizon_ns":null,
+        "loss_seed":0, "outage_action":"drop", "rows":[
+            {"at_ns":0, "t_ns":200, "loss":"0", "outage":false},
+            {"at_ns":200, "t_ns":1000, "loss":"0", "outage":false},
+            {"at_ns":300, "t_ns":10, "loss":"0", "outage":false},
+            {"at_ns":1000, "t_ns":10, "loss":"0", "outage":true},
+            {"at_ns":2000, "t_ns":10, "loss":"0", "outage":false}
+        ]
+    }))
+    .unwrap();
+    let model = HngConfig {
+        c_bps: 8_000_000_000,
+        q_bytes: 80,
+        t_ns: 0,
+        delta_ns: 0,
+        p: Probability::ZERO,
+        seed: 1,
+        storage_capacity_packets: 32,
+        storage_capacity_bytes: 10000,
+    };
+    let mut buffer = HngBuffer::with_trace(model, trace).unwrap();
+    // Services 100/200/300 ns give raw deadlines 300/1200/310 ns.
+    for (id, arrival, expected) in [
+        (1, 0, PushResult::Accepted),
+        (2, 100, PushResult::TraceOutage),
+        (3, 200, PushResult::Accepted),
+    ] {
+        assert_eq!(buffer.push(id as *mut c_void, 76, arrival), expected);
+    }
+    assert!(buffer.try_pop(299, u64::MAX).is_none());
+    for (id, deadline) in [(1, 300), (3, 310)] {
+        let packet = buffer.try_pop(deadline, u64::MAX).unwrap();
+        assert_eq!(packet.packet_ptr as usize, id);
+        assert_eq!(packet.deadline_ns, deadline);
+        assert_eq!(packet.clamp_extra_ns, 0);
+    }
+    assert_eq!(buffer.stats().trace_outage_drops, 1);
+    assert_eq!(buffer.stats().clamp_packets, 0);
+    assert!(buffer.try_pop(1200, u64::MAX).is_none());
+}

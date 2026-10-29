@@ -97,6 +97,12 @@ three deadlines without queueing. TX gates are closed exactly on [200,300) ms;
 terminal coverage ends at 1,060 ms. Neither profile establishes hardware silence
 or cross-engine packet equality.
 
+A separate downward-step regression in the same integration suite uses 100 ns
+service and raw deadlines 300, 1200 and 310 ns. Only 1200 ns is down/dropped.
+The retained deadlines must remain 300 and 310 ns with zero clamp; a dropped
+packet cannot advance the retained floor to create a phantom plateau. A local
+mutation that incorrectly advanced the floor on drop made this test fail.
+
 OneWeb and Choi adapters await source-subset and feasibility decisions. Their
 raw data is not included. Source licenses and attribution remain as recorded
 in the inventory; code remains Apache-2.0.

@@ -138,3 +138,44 @@ Engine arrival versus external ingress, raw clock calibration, per-line gates
 and complete stream seals will follow the committed specification.
 
 The project maintainer owns integration; no main/hng/core pushes.
+
+
+## Integration and streaming follow-up
+
+The measurement branch now merges the integrated core quality gates without
+rebasing. License headers and public documentation have been checked against
+the repository's policy scanner; private machine/session names and evidence
+paths are excluded from this report. Existing upstream history is unchanged.
+
+The host adds a strict event-stream validator (`20d712b`), covering header,
+all-record sequence continuity, marker counts, final seals, canonical content
+hashes and separate byte-level file hashes. A sequence gap alone is sufficient
+to report incomplete observation; a drop counter is not required. Receiver
+wire ordinal is separate from JSONL export ordering.
+
+Online cell statistics and sampled retention are implemented in host `4ed39d8`.
+Each line/direction/phase has separate main, ordinary/late main, late extra and
+per-app extra groups. Main errors are retained within a registered bound for
+exact quantiles; all groups have bounded signed/absolute histograms with exact
+nonzero/min/max/overflow counts. The default retention policy is streaming plus
+hash-selected main witnesses. Full retention requires an explicit software
+fixture or bounded debug window; it is not the normal data path.
+
+Mixed-population tests exercise 500,000 inputs on each of two lines and a
+440,433-input timing-fault population with the default 1/1024 hash. A failing
+LEO tail cannot be masked by cable traffic. The timing cases include 60% at
++0.2 ms (median FAIL), 5% at +0.2 ms (detected below the thresholds), and 5% at
++0.6 ms (p99 FAIL). These are online-statistics tests, not yet full virtual-PMD
+M2 fault-injection acceptance. The existing integrated virtual-PMD suite passes
+independently; it does not substitute for that remaining observation test.
+
+The bounded-fixture reporter now uses explicit receive ordinals when supplied.
+Complete duplicate delivery and delivery of model-intended drops fail the data
+path; an identity absent from ingress is a structural invalidity. Missing
+observation evidence remains inconclusive.
+
+Complete CLI migration, calibrated before/after joins, offer/terminal identity
+reconciliation, shared-port TX-attempt audit and actual virtual-PMD observation
+faults remain open. The uncompleted host exporter work is preserved outside the
+public repository until it can be tested against the streaming contract. There
+is still no full M2 or physical G2 signoff.

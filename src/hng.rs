@@ -163,6 +163,128 @@ pub struct HngStats {
     pub clamp_max_ns: u64,
 }
 
+/// FIFO entry: one 64-byte cache line. L2 and wire bytes follow from packet_bytes.
+#[derive(Copy, Clone)]
+#[repr(align(64))]
+struct Stored {
+    packet_ptr: *mut c_void,
+    ingress_seq: u64,
+    selection_seq: u64,
+    service_ns: u64,
+    deadline_ns: u64,
+    release_ns: u64,
+    clamp_extra_ns: u64,
+    packet_bytes: u32,
+    late: bool,
+}
+
+impl Stored {
+    fn new(p: &HngPacket) -> Self {
+        Self {
+            packet_ptr: p.packet_ptr,
+            ingress_seq: p.ingress_seq,
+            selection_seq: p.selection_seq,
+            service_ns: p.service_ns,
+            deadline_ns: p.deadline_ns,
+            release_ns: p.release_ns,
+            clamp_extra_ns: p.clamp_extra_ns,
+            packet_bytes: p.packet_bytes,
+            late: p.late,
+        }
+    }
+    fn expand(&self) -> HngPacket {
+        // Same derivation as admission: mbuf bytes + FCS, padded to 64; + 20 on the wire.
+        let l2_bytes = (u64::from(self.packet_bytes) + 4).max(64);
+        HngPacket {
+            packet_ptr: self.packet_ptr,
+            ingress_seq: self.ingress_seq,
+            selection_seq: self.selection_seq,
+            service_ns: self.service_ns,
+            deadline_ns: self.deadline_ns,
+            release_ns: self.release_ns,
+            clamp_extra_ns: self.clamp_extra_ns,
+            packet_bytes: self.packet_bytes,
+            l2_bytes,
+            wire_bytes: l2_bytes + 20,
+            late: self.late,
+        }
+    }
+}
+
+/// Fixed-capacity FIFO ring, filled once at construction so every page is
+/// touched. Pushes and pops prefetch the slot they will reach a few packets
+/// later: with a ring larger than the in-flight set both ends are cold.
+struct Ring<T: Copy> {
+    buf: Box<[T]>,
+    head: usize,
+    len: usize,
+}
+
+const PREFETCH_AHEAD: usize = 8;
+
+impl<T: Copy> Ring<T> {
+    fn new(capacity: usize, fill: T) -> Result<Self, ()> {
+        let mut v = Vec::new();
+        v.try_reserve_exact(capacity).map_err(|_| ())?;
+        v.resize(capacity, fill);
+        Ok(Self {
+            buf: v.into_boxed_slice(),
+            head: 0,
+            len: 0,
+        })
+    }
+    fn slot(&self, offset: usize) -> usize {
+        let i = self.head + offset;
+        if i >= self.buf.len() {
+            i - self.buf.len()
+        } else {
+            i
+        }
+    }
+    fn prefetch(&self, offset: usize) {
+        #[cfg(target_arch = "x86_64")]
+        if offset < self.buf.len() {
+            // SAFETY: SSE is baseline on x86_64; prefetch never faults.
+            unsafe {
+                use std::arch::x86_64::{_mm_prefetch, _MM_HINT_T0};
+                _mm_prefetch::<_MM_HINT_T0>((&self.buf[self.slot(offset)] as *const T).cast());
+            }
+        }
+        #[cfg(not(target_arch = "x86_64"))]
+        let _ = offset;
+    }
+    fn len(&self) -> usize {
+        self.len
+    }
+    fn capacity(&self) -> usize {
+        self.buf.len()
+    }
+    fn front(&self) -> Option<&T> {
+        (self.len > 0).then(|| &self.buf[self.head])
+    }
+    /// False when full; admission checks storage capacity first, so callers never see it.
+    fn push_back(&mut self, x: T) -> bool {
+        if self.len == self.buf.len() {
+            return false;
+        }
+        let i = self.slot(self.len);
+        self.buf[i] = x;
+        self.len += 1;
+        self.prefetch(self.len + PREFETCH_AHEAD);
+        true
+    }
+    fn pop_front(&mut self) -> Option<T> {
+        if self.len == 0 {
+            return None;
+        }
+        let x = self.buf[self.head];
+        self.head = self.slot(1);
+        self.len -= 1;
+        self.prefetch(PREFETCH_AHEAD);
+        Some(x)
+    }
+}
+
 struct Service {
     finish: u128,
     l2_bytes: u64,
@@ -170,8 +292,8 @@ struct Service {
 
 pub struct HngBuffer {
     config: HngConfig,
-    ordinary: VecDeque<HngPacket>,
-    late: VecDeque<HngPacket>,
+    ordinary: Ring<Stored>,
+    late: Ring<Stored>,
     service: VecDeque<Service>,
     // Rational service time: ns * C. Avoid rounding every serialization up.
     finish: u128,
@@ -190,17 +312,33 @@ pub struct HngBuffer {
 impl HngBuffer {
     pub fn new(config: HngConfig) -> Result<Self, &'static str> {
         config.validate()?;
-        let mut ordinary = VecDeque::new();
-        let mut late = VecDeque::new();
         let mut service = VecDeque::new();
-        ordinary
-            .try_reserve_exact(config.storage_capacity_packets)
-            .map_err(|_| "ordinary storage allocation failed")?;
-        late.try_reserve_exact(config.storage_capacity_packets)
-            .map_err(|_| "late storage allocation failed")?;
         service
             .try_reserve_exact(config.storage_capacity_packets)
             .map_err(|_| "Q metadata allocation failed")?;
+        // Touch every reserved page now, so first use in the packet path takes no page fault.
+        let empty = Stored::new(&HngPacket {
+            packet_ptr: std::ptr::null_mut(),
+            ingress_seq: 0,
+            selection_seq: 0,
+            service_ns: 0,
+            deadline_ns: 0,
+            release_ns: 0,
+            clamp_extra_ns: 0,
+            packet_bytes: 0,
+            l2_bytes: 0,
+            wire_bytes: 0,
+            late: false,
+        });
+        let ordinary = Ring::new(config.storage_capacity_packets, empty)
+            .map_err(|_| "ordinary storage allocation failed")?;
+        let late = Ring::new(config.storage_capacity_packets, empty)
+            .map_err(|_| "late storage allocation failed")?;
+        service.resize_with(service.capacity(), || Service {
+            finish: 0,
+            l2_bytes: 0,
+        });
+        service.clear();
         Ok(Self {
             config,
             ordinary,
@@ -242,7 +380,19 @@ impl HngBuffer {
         now_ns: u64,
         seq: u64,
     ) -> PushResult {
-        let result = self.admit(packet_ptr, packet_bytes, now_ns, seq);
+        self.push_with_record(packet_ptr, packet_bytes, now_ns, seq, None)
+    }
+
+    /// Like `push_with_seq`; an accepted packet's record is also copied to `record`.
+    pub fn push_with_record(
+        &mut self,
+        packet_ptr: *mut c_void,
+        packet_bytes: u32,
+        now_ns: u64,
+        seq: u64,
+        record: Option<&mut HngPacket>,
+    ) -> PushResult {
+        let result = self.admit(packet_ptr, packet_bytes, now_ns, seq, record);
         match result {
             PushResult::Accepted => {}
             PushResult::QDrop => {
@@ -276,6 +426,7 @@ impl HngBuffer {
         packet_bytes: u32,
         now_ns: u64,
         seq: u64,
+        record: Option<&mut HngPacket>,
     ) -> PushResult {
         if self.input_complete
             || packet_ptr.is_null()
@@ -391,11 +542,18 @@ impl HngBuffer {
             wire_bytes,
             late,
         };
-        if late {
-            self.late.push_back(packet);
-            self.stats.selected_late += 1;
+        if let Some(r) = record {
+            *r = packet;
+        }
+        // Cannot be full: each ring holds storage_capacity_packets, checked above.
+        let pushed = if late {
+            self.late.push_back(Stored::new(&packet))
         } else {
-            self.ordinary.push_back(packet);
+            self.ordinary.push_back(Stored::new(&packet))
+        };
+        debug_assert!(pushed);
+        if late {
+            self.stats.selected_late += 1;
         }
         if clamp_extra_ns > 0 {
             self.stats.clamp_packets += 1;
@@ -405,17 +563,13 @@ impl HngBuffer {
         self.stats.accepted += 1;
         self.stats.accepted_bytes += u64::from(packet_bytes);
         self.stats.accepted_l2_bytes += l2_bytes;
-        self.stats.accepted_wire_bytes += wire_bytes;
         self.stats.storage_bytes += u64::from(packet_bytes);
-        self.stats.storage_packets += 1;
         self.stats.storage_high_water_bytes = self
             .stats
             .storage_high_water_bytes
             .max(self.stats.storage_bytes);
-        self.stats.storage_high_water_packets = self
-            .stats
-            .storage_high_water_packets
-            .max(self.stats.storage_packets);
+        self.stats.storage_high_water_packets =
+            self.stats.storage_high_water_packets.max(self.len() as u64);
         PushResult::Accepted
     }
 
@@ -437,8 +591,16 @@ impl HngBuffer {
     pub fn has_backlog(&self) -> bool {
         !self.is_empty() || !self.service.is_empty()
     }
+    /// Counters that follow from others are derived here, off the packet path:
+    /// every stored packet was accepted, and wire bytes are L2 bytes + 20.
     pub fn stats(&self) -> HngStats {
-        self.stats
+        let mut s = self.stats;
+        s.storage_packets = self.len() as u64;
+        s.dequeued = s.accepted - s.storage_packets;
+        s.dequeued_bytes = s.accepted_bytes - s.storage_bytes;
+        s.accepted_wire_bytes = s.accepted_l2_bytes + 20 * s.accepted;
+        s.dequeued_wire_bytes = s.dequeued_l2_bytes + 20 * s.dequeued;
+        s
     }
 
     fn ordinary_first(&self) -> bool {
@@ -449,16 +611,17 @@ impl HngBuffer {
         }
     }
 
-    pub fn front(&self) -> Option<&HngPacket> {
+    pub fn front(&self) -> Option<HngPacket> {
         if self.ordinary_first() {
             self.ordinary.front()
         } else {
             self.late.front()
         }
+        .map(Stored::expand)
     }
 
     /// W certifies all ingress records with arrival <= W have been processed.
-    pub fn ready(&self, now_ns: u64, input_watermark_ns: u64) -> Option<&HngPacket> {
+    pub fn ready(&self, now_ns: u64, input_watermark_ns: u64) -> Option<HngPacket> {
         let p = self.front()?;
         if p.release_ns > now_ns
             || (!self.input_complete
@@ -478,6 +641,18 @@ impl HngBuffer {
         self.pop()
     }
 
+    /// Bytes reserved for both packet FIFOs and the service ledger.
+    pub fn metadata_bytes(&self) -> usize {
+        (self.ordinary.capacity() + self.late.capacity()) * std::mem::size_of::<Stored>()
+            + self.service.capacity() * std::mem::size_of::<Service>()
+    }
+    /// `try_pop` for a caller that has just seen `ready()` return this head.
+    pub(crate) fn pop_ready(&mut self, now_ns: u64) -> Option<HngPacket> {
+        if self.input_complete {
+            self.release_q(now_ns);
+        }
+        self.pop()
+    }
     pub fn min_delay_ns(&self) -> u64 {
         self.minimum_delay_ns
     }
@@ -505,15 +680,17 @@ impl HngBuffer {
             self.ordinary.pop_front()
         } else {
             self.late.pop_front()
-        }?;
-        self.stats.dequeued += 1;
-        self.stats.dequeued_bytes += u64::from(p.packet_bytes);
+        }?
+        .expand();
         self.stats.dequeued_l2_bytes += p.l2_bytes;
-        self.stats.dequeued_wire_bytes += p.wire_bytes;
         self.stats.storage_bytes -= u64::from(p.packet_bytes);
-        self.stats.storage_packets -= 1;
         Some(p)
     }
+}
+
+/// Core metadata bytes reserved per storage slot: two FIFO entries and a ledger entry.
+pub fn slot_metadata_bytes() -> usize {
+    2 * std::mem::size_of::<Stored>() + std::mem::size_of::<Service>()
 }
 
 /// SplitMix64 finalizer with fixed wrapping arithmetic, stable across builds.
@@ -522,4 +699,14 @@ pub fn selection_word(seed: u64, seq: u64) -> u64 {
     x = (x ^ (x >> 30)).wrapping_mul(0xbf58476d1ce4e5b9);
     x = (x ^ (x >> 27)).wrapping_mul(0x94d049bb133111eb);
     x ^ (x >> 31)
+}
+
+#[cfg(test)]
+mod layout_tests {
+    /// Each FIFO entry occupies exactly one cache line, never two.
+    #[test]
+    fn stored_entry_is_one_aligned_cache_line() {
+        assert_eq!(std::mem::size_of::<super::Stored>(), 64);
+        assert_eq!(std::mem::align_of::<super::Stored>(), 64);
+    }
 }

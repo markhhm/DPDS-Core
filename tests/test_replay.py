@@ -36,7 +36,24 @@ class ConvertedReplayTests(unittest.TestCase):
             path = Path(directory) / "synthetic.zip"
             with zipfile.ZipFile(path, "w") as archive:
                 archive.writestr("synthetic.csv", (ROOT / "tests/fixtures/garcia-synthetic.csv").read_bytes())
-            self.run_source(path, 0, 15_000_000)
+            result = self.run_source(path, 0, 15_000_000)
+            self.assertIn("realized_lateness", result, "actual output lateness is not measured")
+            stats = result["realized_lateness"]
+            self.assertEqual(stats["source"]["n_late"], 5)
+            self.assertEqual(stats["engine"]["n_late"], 10)
+            self.assertNotEqual(stats["source"]["histogram"], stats["engine"]["histogram"])
+            self.assertEqual(stats["status"], "PROPOSAL_PENDING")
+
+    def test_fixed_two_point_output_is_measured_in_source_order(self):
+        self.assertTrue(hasattr(self.verifier, "verify_fixed"), "two-point engine comparison is absent")
+        for probability in ("0.01", "0.10"):
+            with self.subTest(probability=probability):
+                result = self.verifier.verify_fixed(self.runner, probability, 10_000)
+                self.assertEqual(result["deadline_mismatches"], 0)
+                stats = result["realized_lateness"]
+                self.assertEqual(stats["source"]["histogram"], stats["engine"]["histogram"])
+                self.assertEqual(stats["p_next_difference_pp"], 0)
+                self.assertGreater(result["permitted_reordering"], 0)
 
     def test_real_garcia_converted_segment_matches_independent_oracle(self):
         path = os.environ.get("REAL_GARCIA_ZIP")

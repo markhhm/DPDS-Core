@@ -243,6 +243,21 @@ requires an exercised downward-step clamp with zero unexpected reordering.
 Without that external input, only that measured-data test is explicitly skipped;
 the synthetic engine replay remains mandatory. Software replay is not G2.
 
+Replay reports also contain `realized_lateness`: actual output run histograms,
+spans, late share and P(next late | late), compared with the original source.
+They use release minus arrival, including C service and clamp, and source send
+order rather than reordered output order. Run-length CDF distance and probability
+differences are descriptive under the [pending fidelity proposal](proposals/m3-run-fidelity.md).
+The status stays `PROPOSAL_PENDING` regardless of those values.
+
+For fixed two-point mode, independently check p/delta selection and measure its
+actual output against the known source distribution:
+
+```sh
+python scripts/replay_trace.py --fixed-p 0.10 --delta-ns 30000000 \
+  --count 10000 --runner target/debug/trace_replay --output fixed-replay.json
+```
+
 ## Late-run distribution comparison
 
 Both tools report `lateness` using the diagnostic from the source research

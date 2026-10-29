@@ -1,4 +1,5 @@
-# M2 independent oracle / reporter — observation worker
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+# M2 independent oracle / reporter
 
 2026-10-29. **Preparatory software implementation; M2 is not complete.**
 Observer integration is awaiting the in-progress HNG-OBSERVER specification.
@@ -29,7 +30,7 @@ software-only and cannot certify hardware-length evidence or hardware clocks.
 
 ## Stage 1 compatibility
 
-Source was fetched read-only after experiment coordinator's push:
+Source was fetched read-only after the source maintainer's push:
 `the Stage 1 harness de035a63f5d0135ee70b0bceb27d5051897b85a1` (36d54a2 + de035a6),
 **pending second review**. Actually read: `C2/docs/vm126-target-check.md`,
 `C2/scripts/vm126_target_check.py`, `C2/harness/target_rate_check.py`,
@@ -80,12 +81,8 @@ clock uncertainty, strict JSON, fractional Q equality and normalized trace hash.
 RED runs are saved before implementations. A harness regression verifies that
 Python -O cannot disable comparison failures.
 
-Evidence root: `<shared-outbox>/`:
-
-- `2026-10-29-m2-host-push.log` (installed pre-push checks, final 10/10).
-- `2026-10-29-m2-core-tests.log` (42/42).
-- `2026-10-29-m2-sealed-injections-122524Z/` (six CLI fixture reports and inputs).
-- `2026-10-29-m2-*-red.log` (test-first failures).
+Detailed raw logs and private evidence locations are retained in the research
+records. They are intentionally not part of this public repository.
 
 ## Pending work / differences from the task
 
@@ -108,7 +105,7 @@ the final specification and observer acceptance, not this preparatory report.
 
 ## Independent review and fixes
 
-One fresh independent reviewer found three Important false PASS paths: expected
+An independent reviewer found three Important false PASS paths: expected
 rows were not sealed to the reference summary, invalid/unsupported storage
 and envelope settings were accepted, and impossible negative OWD could pass
 as small timing error. It also found that Q-drop rows omitted the sent
@@ -131,7 +128,7 @@ The first review-fix Meson run failed `g2-software` only in
 short input had previously requested less storage than its declared profile.
 The fixture now declares adequate storage even for short corrupt-output runs;
 the final corrected run passed. The failure log is preserved as
-`2026-10-29-m2-review-meson-test.log`, not hidden or overwritten.
+the first review-fix test log, not hidden or overwritten.
 
 The M2 spec owner clarified modeled trace-hold timing: expected OWD uses
 `release_ns-arrival_ns`, including modeled hold. Fixed mode retains the original
@@ -140,4 +137,4 @@ subtracted from gate error. A new trace-hold fixture covers this distinction.
 Engine arrival versus external ingress, raw clock calibration, per-line gates
 and complete stream seals will follow the committed specification.
 
-integration lead owns integration; no main/hng/core pushes.
+The project maintainer owns integration; no main/hng/core pushes.

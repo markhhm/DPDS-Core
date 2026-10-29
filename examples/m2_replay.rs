@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! Software-only production-side replay adapter. Contains no reference formulas.
 use dpds_core::hng::{HngBuffer, HngConfig, HngPacket, PushResult, TraceProfile};
 use serde::Deserialize;

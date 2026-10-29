@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! Normalized sample-and-hold delay/loss and explicit outage actions.
 use crate::hng::Probability;
 use serde::Deserialize;

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 use dpds_core::hng::{HngBuffer, HngConfig, Probability, PushResult};
 use std::ffi::c_void;
 

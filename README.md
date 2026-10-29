@@ -167,6 +167,12 @@ in [`config.example.json`](config.example.json):
   - `h` — probability of correct transmission while in the Bad state
   - `state_is_good` — initial state flag (always reset to `true`/Good on startup)
 
+## HNG implementation
+
+The HNG engine, C ABI, VLAN-line configuration and normalized trace schema are
+documented in [docs/HNG-API.md](docs/HNG-API.md). Its contract is
+[docs/HNG-DESIGN.md](docs/HNG-DESIGN.md). The upstream APIs above remain available.
+
 ## License
 
 Licensed under the [Apache License, Version 2.0](LICENSE).

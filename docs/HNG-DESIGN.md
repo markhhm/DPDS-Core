@@ -879,7 +879,7 @@ Offline checks on 2026-10-29:
   counterexample, outage hold/drop and P0 sizing fixtures passed.
 - `cargo test --locked` on this documentation branch: **9 passed, 0 failed**.
   These are upstream legacy core tests, not HNG implementation acceptance.
-- An independent builder review found missing input-completeness and
+- An independent reviewer found missing input-completeness and
   full-oracle-evidence requirements; both were added. Its trace review clarified
   actual-time outage losses, cross-line arbitration and terminal HOLD semantics.
 

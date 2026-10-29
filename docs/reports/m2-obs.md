@@ -195,7 +195,17 @@ reporter still accepts the reference output during migration. Focused reference,
 report and protocol checks passed 54 tests; the complete host check passed
 16/16 with no skips.
 
-Final manifest/report migration, complete online before/after joins, online
+Host `c0ec96b` adds static v1 registration preflight. It checks logical
+port/VLAN/queue mapping, immutable config/trace/calibration sources, required
+cells, sampling targets and pool declarations, and bounded debug retention.
+The planning vector is `N_plan(10)=440433`; the m=1 boundary is also checked
+against exact binomial sums. Invalid types cannot bypass required sample
+planning. Config parsing uses the same bytes whose hash was checked. The
+preflight explicitly does not claim captured-stream integrity or data-path
+gate evaluation. Focused checks passed 66 tests; the full host check passed
+16/16 with no skips.
+
+Final report migration, complete online before/after joins, online
 offer/terminal and shared-port custody reconciliation, plus actual virtual-PMD
 observation faults remain open. The uncompleted host exporter work is preserved
 outside the public repository until it can be tested against the streaming

@@ -5,6 +5,7 @@ set -eu
 cd "$(git rev-parse --show-toplevel)"
 scripts/check-policy.sh
 scripts/check-policy-test.sh
+PYTHONDONTWRITEBYTECODE=1 "${PYTHON:-python3}" -m unittest discover -s tests -p 'test_trace_tools.py'
 . scripts/find-cargo.sh
 "$CARGO" fmt --check
 "$CARGO" clippy --locked --all-targets -- -D warnings

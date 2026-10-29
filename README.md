@@ -191,7 +191,14 @@ documented in [docs/HNG-API.md](docs/HNG-API.md). Its contract is
 [docs/HNG-DESIGN.md](docs/HNG-DESIGN.md). The upstream APIs above remain available.
 
 The [trace pipeline inventory](docs/reports/m3-trace-inventory.md) records source
-contracts and unresolved replay semantics. Source-specific conversion is pending.
+contracts and unresolved replay semantics. Garcia configured-interval conversion
+is available; other source adapters and end-to-end replay acceptance are pending.
+
+The offline [Garcia trace tools](docs/TRACE-TOOLS.md) convert a selected raw ZIP
+window to `hng-trace-v1`, compare configured intervals with TheaterQ CSV rows,
+and report source-versus-configured late-run distributions. A synthetic quick
+start requires only Python and NumPy, without DPDK or a NIC. These tools do not
+certify cross-engine packet deadlines, outage reconstruction or hardware timing.
 
 ## License
 

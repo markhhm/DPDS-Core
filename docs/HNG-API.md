@@ -86,10 +86,12 @@ the engine never wraps or silently concatenates traces. Source conversion and
 the 05:15/10:00 splice protocol remain experiment responsibilities. The clamp
 does not validate splicing or reproduce source packet-specific reordering.
 
-Only probabilistic interval loss is currently supported. Exact identity masks,
-vendor-specific Garcia/Choi/OneWeb conversion and arbitrary per-packet late
-amounts require separate input adapters/policies. Unsupported fields/policies
-are rejected, rather than treated as FIFO replay.
+Only probabilistic interval loss is currently supported. The offline
+[Garcia converter](TRACE-TOOLS.md) produces delay-only intervals with source
+hashes, recipe and late-run diagnostics. It does not reconstruct outages or
+packet-specific loss. Exact identity masks, Choi/OneWeb conversion and arbitrary
+per-packet late amounts require separate input adapters/policies. Unsupported
+fields/policies are rejected, rather than treated as FIFO replay.
 
 ## Custody and shutdown
 

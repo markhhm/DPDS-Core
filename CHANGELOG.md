@@ -10,6 +10,11 @@ fork has been released yet.
 
 ### Added
 
+- Independent offline Garcia ZIP converter and configured-row comparator,
+  source hashes and versioned recipes, and source-versus-configured late-run
+  diagnostics (`docs/TRACE-TOOLS.md`). Synthetic Python tests run in the same
+  check script used by CI and the pre-push hook; NumPy is an offline-tool
+  requirement only, with no new Rust or DPDK dependency.
 - HNG scheduling engine (`src/hng.rs`, `src/hng_engine.rs`, `src/hng_trace.rs`):
   per-line shared finite-Q FIFO bottleneck, fixed delay plus seeded late subset,
   monotone trace replay, C ABI, and `hng-v1` configuration

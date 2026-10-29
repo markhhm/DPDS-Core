@@ -380,6 +380,50 @@ Not tested on a NIC.
 Item 8 (one RX and TX lcore per direction, JSON fixture SPDX notes) was not
 started. Trace-mode `--verify` is not supported (fixed mode only).
 
+## Round 3 (second review)
+
+Commits: DPDS-Core `76c9f74` (64-byte aligned FIFO entry), `fbed6b9`
+(available-memory check). DPDS `8db7cc0` (golden digest tracked), `28cc751`
+(pin), `ce55f10` (TX pending head index), `fec6516` (NIC loss invalidates),
+`5661858` (static asserts), `b112ae3` (pin).
+
+- `tests/split-golden.csv` was ignored by `*.csv` and never committed, so a
+  clean clone failed `dpds:split`. It is now tracked. A fresh `git clone
+  --recursive` of the pushed `hng/m4-perf` branch into a scratch directory
+  built and passed all 24 meson tests, including `split`.
+- `Stored` is now `#[repr(align(64))]` (size and alignment 64, unit test), so
+  no FIFO entry straddles two cache lines. Measured at load average 7.6-8.0,
+  production-sized fixture, concurrent owners, CPU sets 2/6/10, 4/8/12,
+  2/10/14: p50 median 71.1 / 74.9 ns aligned against 83.9 / 90.5 ns without,
+  then 75.8 / 84.5 ns aligned again. The effect is inside this noise.
+- The TX pending table keeps a head index in a 2x buffer and compacts only
+  when an append reaches the end, so removal is O(1) and appends amortized
+  O(1). `tx_pending` drains a full 1024-entry table through terminal drops
+  (217,512 cycles, against 298,072 with the old per-packet `memmove`) and
+  checks FIFO order across 8192 packets with refused, partial and full sends.
+- Nonzero `imissed` or `rx_nombuf` now invalidates the run, checked before the
+  status line. net_ring does not report these counters, so the test uses
+  synthetic counters. `rx_ring_full_skips` counts skipped polls, not packets;
+  the frames stay in the NIC queue and show up as `imissed` only if it
+  overflows.
+- The static asserts after `rx_stats`, `worker_stats` and `tx_stats` now check
+  their own 64-byte alignment and whole-line size.
+- Prefault: load now compares the total core reservation with `MemAvailable`
+  and returns a configuration error if it does not fit. This is a snapshot;
+  memory taken by other processes afterwards can still cause an
+  out-of-memory kill under overcommit. The prefault stays serial on the main
+  lcore before launch (about 0.6 GiB per line at the production envelope).
+
+**Gate: still open.** Rerun of the production-sized fixture after these
+changes, pinned as above, load average 12.0 at start and end: p50 median
+single owner 85.0 ns (61.2-90.8), port 0 owner 94.2 ns (82.3-98.6), port 1
+owner 96.2 ns (69.0-103.2). At this load the run cannot resolve a 60 ns
+gate; the quietest measurement remains 63.4 / 65.2 ns per concurrent owner
+(round 2). A clean measurement needs an idle machine or the target host.
+
+One local `check.sh` run on DPDS `b112ae3` exited 1 without a captured cause;
+the pre-push hook on the same commit and an immediate rerun both passed.
+
 ## WSL2-only and untested
 
 - Every timing number is from WSL2 on a shared desktop CPU with other load,

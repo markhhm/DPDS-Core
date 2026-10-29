@@ -137,3 +137,10 @@ handles for disjoint lines of one engine at the same time, for example one
 owner per ingress port. Each handle has one owner at a time. No `hng_engine_*`
 call may run while a handle is in use, because those calls borrow the whole
 engine. Take the handles before launching the owners.
+
+`hng_line_offer_record` is `hng_line_offer` that also returns the admitted
+record, so the host can annotate the packet while it is cached.
+`hng_lines_pop_merged(lines, watermarks, n, now, limit, out)` pops the smallest
+`(release_ns, ingress_seq)` ready head among `n` lines of one egress port when
+its release is at most `limit` (the host's bound against unseen input), and
+returns the index of that line, or -1. It replaces a peek per line and a pop.

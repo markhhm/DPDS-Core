@@ -706,3 +706,48 @@ pub unsafe extern "C" fn hng_line_drain_advance(line: *mut Line, now_ns: u64) ->
 pub unsafe extern "C" fn hng_line_has_backlog(line: *const Line) -> bool {
     line.as_ref().is_some_and(|l| l.buffer.has_backlog())
 }
+
+/// Pop the smallest `(release_ns, ingress_seq)` ready head among `n` lines that
+/// share one egress port, if its release is at most `limit_ns`. Line k uses
+/// input watermark `watermarks[k]`. Returns the index k of the popped line, or
+/// -1 when no head is ready or the smallest one exceeds the limit.
+/// # Safety
+/// `lines` and `watermarks` hold `n` entries (or n is 0); every handle is
+/// distinct, live and owned by the calling thread; out is writable.
+#[no_mangle]
+pub unsafe extern "C" fn hng_lines_pop_merged(
+    lines: *const *mut Line,
+    watermarks: *const u64,
+    n: usize,
+    now_ns: u64,
+    limit_ns: u64,
+    out: *mut HngPacket,
+) -> isize {
+    if n == 0 || lines.is_null() || watermarks.is_null() || out.is_null() {
+        return -1;
+    }
+    let lines = std::slice::from_raw_parts(lines, n);
+    let watermarks = std::slice::from_raw_parts(watermarks, n);
+    let mut best: Option<(usize, (u64, u64))> = None;
+    for (k, &l) in lines.iter().enumerate() {
+        let Some(l) = l.as_ref() else { return -1 };
+        if let Some(p) = l.buffer.ready(now_ns, watermarks[k]) {
+            let key = (p.release_ns, p.ingress_seq);
+            if best.is_none_or(|(_, b)| key < b) {
+                best = Some((k, key));
+            }
+        }
+    }
+    match best {
+        Some((k, (release, _))) if release <= limit_ns => {
+            match (*lines[k]).buffer.try_pop(now_ns, watermarks[k]) {
+                Some(p) => {
+                    *out = p;
+                    k as isize
+                }
+                None => -1,
+            }
+        }
+        _ => -1,
+    }
+}

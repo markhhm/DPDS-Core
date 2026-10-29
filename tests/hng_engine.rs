@@ -266,3 +266,81 @@ fn offer_record_matches_the_record_pop_returns() {
     assert!(unsafe { hng_line_drain_advance(l, u64::MAX / 2) });
     assert!(unsafe { hng_engine_destroy(e) });
 }
+
+/// The merged pop takes the smallest (release, ingress_seq) ready head, like a host-side merge.
+#[test]
+fn merged_pop_matches_a_host_side_merge() {
+    use dpds_core::hng::{HngPacket, PushResult};
+    use dpds_core::hng_engine::*;
+    let run = |merged: bool| -> Vec<(isize, u64, u64)> {
+        let e = Box::into_raw(Box::new(Engine::from_json(&four_lines()).unwrap()));
+        let lines = [unsafe { hng_engine_line(e, 0) }, unsafe {
+            hng_engine_line(e, 1)
+        }];
+        let mut out = Vec::new();
+        for seq in 0..400u64 {
+            let line = lines[(seq * 7 % 3 % 2) as usize];
+            let ptr = (seq + 1) as usize as *mut std::ffi::c_void;
+            let r = unsafe { hng_line_offer(line, ptr, 76, seq * 120, seq) };
+            assert!(matches!(r, PushResult::Accepted | PushResult::QDrop));
+            let now = seq * 120;
+            // The limit trails the clock so some ready heads are held back.
+            let limit = now.saturating_sub(300);
+            let w = [now, now];
+            loop {
+                let mut p = std::mem::MaybeUninit::<HngPacket>::uninit();
+                let k = if merged {
+                    unsafe {
+                        hng_lines_pop_merged(
+                            lines.as_ptr(),
+                            w.as_ptr(),
+                            2,
+                            now,
+                            limit,
+                            p.as_mut_ptr(),
+                        )
+                    }
+                } else {
+                    let mut best: Option<(usize, (u64, u64))> = None;
+                    for (k, &l) in lines.iter().enumerate() {
+                        if unsafe { hng_line_peek(l, now, w[k], p.as_mut_ptr()) } {
+                            let h = unsafe { p.assume_init() };
+                            let key = (h.release_ns, h.ingress_seq);
+                            if best.is_none_or(|b| key < b.1) {
+                                best = Some((k, key));
+                            }
+                        }
+                    }
+                    match best {
+                        Some((k, key)) if key.0 <= limit => {
+                            assert!(unsafe { hng_line_pop(lines[k], now, w[k], p.as_mut_ptr()) });
+                            k as isize
+                        }
+                        _ => -1,
+                    }
+                };
+                if k < 0 {
+                    break;
+                }
+                let p = unsafe { p.assume_init() };
+                out.push((k, p.ingress_seq, p.release_ns));
+            }
+        }
+        let mut p = std::mem::MaybeUninit::<HngPacket>::uninit();
+        let null = std::ptr::null();
+        assert_eq!(
+            unsafe { hng_lines_pop_merged(null, std::ptr::null(), 0, 0, 0, p.as_mut_ptr()) },
+            -1
+        );
+        for &l in &lines {
+            while unsafe { hng_line_abort_pop(l, p.as_mut_ptr()) } {}
+            unsafe { hng_line_end_input(l) };
+        }
+        unsafe { hng_engine_drain_advance(e, u64::MAX / 2) };
+        unsafe { hng_engine_abort_destroy(e) };
+        out
+    };
+    let manual = run(false);
+    assert!(manual.len() > 100 && manual.iter().any(|x| x.0 == 1));
+    assert_eq!(manual, run(true));
+}

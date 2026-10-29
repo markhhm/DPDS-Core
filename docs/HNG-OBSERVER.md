@@ -355,19 +355,42 @@ The host exporter must copy fixed metadata into a preallocated bounded per-produ
 
 The canonical JSONL format is required for fixtures/interchange. A lossless compact adapter is permitted for hardware, but its exact binary layout, endian rules, lengths, checksum/seal and round-trip equivalence tests must be documented and pinned before qualification. **The following widths are capacity estimates, not a hidden binary ABI or proof JSON records are this small.** Do not implement a new binary protocol just to satisfy software M2; qualify measured encoded widths before M5.
 
-At 100G, 1500-byte IP plus one VLAN is 1,542 line bytes. Bidirectional rate is `2*100e9/(8*1542)=16.212711 Mpps`. For 600 s:
+At 100G, 1500-byte IP plus one VLAN is 1,542 line bytes. Bidirectional rate is `2*100e9/(8*1542)=16.212711 Mpps`.
 
-| Retained record class | Illustrative bytes / occurrence | Rate | Ten-minute volume |
+Illustrative packed layouts, one per record class, derived from the field lists in sections 4–5. Common assumptions: `run`/`stream_id`/schema live in the stream header; each record carries `kind` (1 B) and envelope `seq` (8 B); line, app, clock and reason are manifest indices (2/2/1/1 B); a synthetic or probe `external_identity` is flow index u32 + occurrence u64 = 12 B and also gives `flow_id`; nullable small fields use a sentinel; each record pads to a multiple of 8 B. A wider production identity adds its extra width to every identity-bearing record and per-entry array below.
+
+| Record | Field bytes | Packed | Padded |
+|---|---|---:|---:|
+| ingress `packet` (§4.1) | kind 1, seq 8, ingress_port 2, ingress_seq 8, line 2, selection_seq 8, identity 12, arrival_ns 8, length 4, vlan_id 2, segments 1, length_flags 1, app 2, selected_late 1, input_error 1 | 61 | 64 |
+| host `offer` (§4.1) | kind 1, seq 8, ingress_port 2, ingress_seq 8, identity 12, line 2, at_ns 8, actual_selection_seq 8 | 49 | 56 |
+| fused ingress+offer (option) | ingress fields 61, at_ns 8, actual_selection_seq 8, offer-present flag 1 | 78 | 80 |
+| after `receive` identity/order (§4.2) | kind 1, seq 8, ingress_port 2, egress_port 2, line 2, identity 12, receive_seq 8, selected_late 1, length 4, vlan_id 2, app 2, timestamp-present flag 1 | 45 | 48 |
+| external `before` identity (§4.2) | as `receive` without egress_port, with before_seq in place of receive_seq | 43 | 48 |
+| timing row, one per observation point (§4.2) | kind 1, seq 8, ingress_port 2, line 2, identity 12, mapped ns 8, timestamp {raw 8, clock_id 1, mapping_id 2, point 1, uncertainty_ns 4}, stratum flags 1 | 50 | 56 |
+| `dispatch` batch header (§5.3) | kind 1, seq 8, at_ns 8, egress_port 2, handoff_queue_id 2, first_handoff_seq 8, entry count 2, seen_next_ingress_seq {port 2, u64 8}, frontiers {port 2, through_ns 8, end flag 1} | 52 | 56 |
+| `dispatch` per identity | identity 12 | 12 | 12 |
+| `attempt` header (§5.3) | kind 1, seq 8, egress_port 2, queue_id 2, attempt_id 8, gate_ns 8, submit_before_ns 8, submit_after_ns 8, seen_next_ingress_seq 10, frontiers 11, consumed_dispatch {queue 2, u64 8}, accepted_count 2, offered count 2 | 80 | 80 |
+| `attempt.offered` entry | ingress_port 2, ingress_seq 8, identity 12, line 2, gate_ns 8, handoff_queue_id 2, handoff_seq 8 | 42 | 48 |
+| `terminal` (§5.2) | kind 1, seq 8, ingress_port 2, ingress_seq 8, identity 12, line 2, at_ns 8, reason 1 | 42 | 48 |
+
+Per-input volume for 600 s at zero intended loss, with v1's one opposite ingress port and one handoff queue per egress, mean burst B=32 for both dispatch and attempt, and no TX retries:
+
+| Retained record class | Bytes / input packet | Rate | Ten-minute volume |
 |---|---:|---:|---:|
-| Complete pre-Q ingress | 64 / input | 1.038 GB/s | 622.6 GB |
-| Complete after identity/order | 48 / survivor at zero loss | 0.778 GB/s | 466.9 GB |
-| Extra external-before identity | 48 / input | 0.778 GB/s | 466.9 GB |
-| TX/dispatch evidence | 32 amortized / packet, plus burst/clock headers | 0.519 GB/s | 311.3 GB plus headers |
-| Paired main timing records | 128 / selected packet at 1/1024 | 2.027 MB/s | 1.216 GB |
+| Complete pre-Q ingress | 64 | 1.038 GB/s | 622.6 GB |
+| Host offer | 56 | 0.908 GB/s | 544.7 GB |
+| Complete after identity/order | 48 | 0.778 GB/s | 466.9 GB |
+| Extra external-before identity | 48 | 0.778 GB/s | 466.9 GB |
+| Dispatch | 12 + 56/32 = 13.75 | 0.223 GB/s | 133.8 GB |
+| TX attempt | 48 + 80/32 = 50.5 | 0.819 GB/s | 491.2 GB |
+| Paired main timing | 2*56/1024 = 0.109 | 1.773 MB/s | 1.064 GB |
+| **Total** | **280.36** | **4.545 GB/s** | **2.727 TB** |
 
-The primary scheme's illustrated full streams total about **3.113 GB/s and 1.868 TB per ten-minute cell**, before headers, expected output, indices, repeats and extra strata. Therefore the earlier generic ≥1 TB request is only a floor: provision at least **2.5 TB aggregate free space per retained cell** for these widths, and more for JSONL/full reference outputs or longer runs. Split by actual writer; neither compression nor all expected losses are assumed. The 32 B TX allowance assumes packed IDs/bursts and is particularly sensitive to per-entry metadata; measure actual encoded size rather than treating this table as an allocation guarantee. TG TX/RX backup may avoid the extra passive-before identity stream but still needs complete generation/input/delivery evidence.
+Check: `280.359375 B * 16.212711e6 /s = 4.545 GB/s`; `* 600 s = 2.727 TB`. Fusing offer into the ingress record (one host producer, offer fields null on a pre-offer loss) gives `280.36-64-56+80 = 240.36 B`, 3.897 GB/s and 2.338 TB. Intended loss at fraction p replaces about 48p B of after records with 48p B of terminal records, so the total is unchanged to this precision. Each TX retry adds an 80 B header plus 48 B per re-offered entry; at B=1 the per-packet total rises to 412.11 B. The 10%-late extra stratum at 112 B/pair adds `0.1*112*16.212711e6*600 = 108.9 GB`, for **2.836 TB** per cell with it.
 
-Streaming reduces disk, not event processing: retain bounded mismatch records, digests, counters and timing samples after full independent checking. A 100 GB workspace is an initial estimate **only** if high-volume strata are reduced online. Main timing alone is small; if all 10%-late extras are saved at 128 B/pair, they add about 124.4 GB/600 s before other data. Register retention caps; cap exhaustion is explicit, not silent sample loss. Extra stratum streaming summaries may use exact sorted spill or a documented bounded quantile representation with conservative error bounds; the first software reporter can keep them in memory for limited fixtures.
+The table excludes expected output (streamed), counters, stream headers/seals, indices, repeats and other extra strata. Provision at least **3.6 TB aggregate free space per retained ten-minute cell** (2.836 TB plus 25% for these and for width error, rounded up), and more for JSONL, smaller bursts, retries, persisted reference output or longer runs. Split by actual writer; neither compression nor expected losses are assumed. These widths are not measured; register the measured encoded widths, burst distribution and retry rate before M5, and recompute. TG TX/RX backup may avoid the extra passive-before identity stream but still needs complete generation/input/delivery evidence.
+
+Streaming reduces disk, not event processing: retain bounded mismatch records, digests, counters and timing samples after full independent checking. A 100 GB workspace is an initial estimate **only** if high-volume strata are reduced online. Main timing alone is small; if all 10%-late extras are saved at 112 B/pair, they add about 108.9 GB/600 s before other data. Register retention caps; cap exhaustion is explicit, not silent sample loss. Extra stratum streaming summaries may use exact sorted spill or a documented bounded quantile representation with conservative error bounds; the first software reporter can keep them in memory for limited fixtures.
 
 A 64-byte ingress ring holding 100 ms of aggregate traffic already needs about 103.8 MB. At 512 ms residence, ~8.301 million unresolved identities require at least 531.3 MB at an illustrative 64 B each, before hash-table/Python overhead. Calculate per-line/window burst bounds, not only averages. The observer receives four physical monitor streams (up to 400G aggregate RX); both its PCIe and timestamp-on receive path must be qualified. Failure to sustain this evidence pipeline means lower `R_valid` or INCONCLUSIVE at 100G, not permission to sample away full-input evidence.
 

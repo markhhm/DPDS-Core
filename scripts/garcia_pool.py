@@ -3,23 +3,12 @@
 """List paired natural Garcia windows, their source hashes and exclusion reasons."""
 
 import argparse
+import hashlib
 import json
 from pathlib import Path
 
-import numpy as np
 
-from garcia_trace import read_source, window_has_gap, write_json
-
-
-def detect_phase(source):
-    delays = source.owd_ns / 1e6
-    spikes = delays > np.median(delays) + 15.0
-    if int(np.count_nonzero(spikes)) < 21:
-        return None
-    histogram, edges = np.histogram((source.send_ns[spikes] / 1e9) % 15.0,
-                                   bins=300, range=(0, 15.0))
-    scores = histogram + np.roll(histogram, -1) + np.roll(histogram, 1)
-    return round(float(edges[int(np.argmax(scores))]) * 1e9)
+from garcia_trace import detect_phase, read_source, window_has_gap, write_json
 
 
 def build_pool(directory, duration_ns):
@@ -66,6 +55,44 @@ def build_pool(directory, duration_ns):
     return {"schema": "garcia-canonical-pool-v1", "duration_ns": duration_ns,
             "phase_rule": "DL median+15ms; >=21 spikes; 300 bins/15s; first neighbor-sum maximum",
             "source_margin_ns": margin, "candidates": candidates, "excluded": excluded}
+
+
+
+def validate_selection(source, source_path, start_ns, duration_ns, pool_path, index):
+    """Verify a registered candidate against both unchanged, colocated sources."""
+    pool_path = Path(pool_path)
+    if type(index) is not int or index < 0 or pool_path.stat().st_size > 128 * 1024**2:
+        raise ValueError("invalid canonical pool index or manifest size")
+    payload = pool_path.read_bytes()
+    pool = json.loads(payload)
+    if (not isinstance(pool, dict) or pool.get("schema") != "garcia-canonical-pool-v1" or
+            not isinstance(pool.get("candidates"), list) or index >= len(pool["candidates"])):
+        raise ValueError("invalid canonical pool or candidate index")
+    item = pool["candidates"][index]
+    if (not isinstance(item, dict) or set(item) != {"stamp", "phase_ns", "start_ns", "duration_ns", "sources"} or
+            any(type(item.get(key)) is not int for key in ("phase_ns", "start_ns", "duration_ns")) or
+            item["start_ns"] != start_ns or item["duration_ns"] != duration_ns or
+            not isinstance(item["stamp"], str) or not item["stamp"] or
+            Path(item["stamp"]).name != item["stamp"] or "\\" in item["stamp"] or
+            not isinstance(item["sources"], dict) or set(item["sources"]) != {"ul", "dl"}):
+        raise ValueError("canonical candidate identity or window mismatch")
+    sources = {}
+    for direction in ("ul", "dl"):
+        filename = f"{item['stamp']}__{direction}.csv.zip"
+        current = source if direction == source.direction else read_source(Path(source_path).parent / filename)
+        metadata = {"filename": current.filename, "sha256": current.sha256, "member_sha256": current.member_sha256}
+        if current.direction != direction or current.filename != filename or metadata != item["sources"][direction]:
+            raise ValueError("canonical paired source identity/hash mismatch")
+        sources[direction] = current
+    phase = detect_phase(sources["dl"])
+    earliest = max(500_000_000, *(int(s.send_ns[0]) for s in sources.values()))
+    latest = min(int(s.send_ns[-1]) for s in sources.values()) - 500_000_000
+    if (phase is None or item["phase_ns"] != phase or start_ns < earliest or
+            start_ns + duration_ns > latest or start_ns < phase or
+            (start_ns - phase) % 15_000_000_000 != 0 or
+            any(window_has_gap(s, start_ns, duration_ns) for s in sources.values())):
+        raise ValueError("canonical phase, source margins or measurement gaps invalid")
+    return phase, {"manifest_sha256": hashlib.sha256(payload).hexdigest(), "index": index, "candidate": item}
 
 
 def main():

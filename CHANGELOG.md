@@ -10,6 +10,27 @@ fork has been released yet.
 
 ### Added
 
+- Explicit expected sequence endpoints, leading/internal/trailing missing counts,
+  and unknown unregistered totals; recorded bounds in conversion recipes.
+- Actionable mandatory NumPy preflight in check.sh and venv setup instructions.
+
+- Independent TheaterQ fixture provenance, exact reference snapshot/hash and
+  reproduction parameters, plus worked switch/queue arithmetic.
+
+- Outage-drop regression preventing a discarded packet from creating a phantom
+  retained-deadline plateau, verified with a deliberately incorrect floor mutation.
+
+- Conversion recipe phase and canonical pool identity, with paired-source hash,
+  phase, margin, gap and quantization checks; explicit diagnostic eligibility.
+
+- Startup validation of terminal HOLD against actual line C/Q wire-drain bounds,
+  including per-frame wire overhead and integer-ceiling boundaries.
+
+- Actual engine-output late-run and conditional-lateness measurements for trace
+  and fixed two-point modes; a separately marked fidelity-tolerance proposal.
+- Offline `trace_replay` HngBuffer executable and an independent Fraction oracle
+  checking converted synthetic and external real-Garcia per-packet deadlines,
+  clamp and output order. Synthetic replay is mandatory in the shared check suite.
 - Separately registered synthetic outage drop/hold fixtures and a core integration
   test for exact deadline, release, gate-boundary and finite-horizon behavior.
 - Finite terminal HOLD registration from actual converted maximum delay plus

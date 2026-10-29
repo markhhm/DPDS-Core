@@ -2,9 +2,39 @@
 
 # Changelog
 
-## Unreleased
+All notable changes to this fork are documented here. The format follows
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/). No version of the HNG
+fork has been released yet.
 
-- Record M1 software I/O acceptance and its independent PMD/oracle evidence.
-- Adopt the existing M0 Rust pre-push gate. The scheduler and public APIs are
-  unchanged from 9531a95 in this milestone.
-- Retain the updated per-direction scheduler requirements for later M4 work.
+## [Unreleased]
+
+### Added
+
+- HNG scheduling engine (`src/hng.rs`, `src/hng_engine.rs`, `src/hng_trace.rs`):
+  per-line shared finite-Q FIFO bottleneck, fixed delay plus seeded late subset,
+  monotone trace replay, C ABI, and `hng-v1` configuration
+  (`docs/HNG-API.md`, `docs/HNG-DESIGN.md`).
+- Engine and scheduler test suites with independent reference fixtures.
+- `scripts/check.sh`, the single check suite run by the pre-push hook and CI.
+- Versioned pre-push hook and installer (`scripts/git-hooks/pre-push`,
+  `scripts/install-hooks.sh`).
+- GitHub Actions CI running `scripts/check.sh`.
+- Open-source policy scan (`scripts/check-policy.sh`) with a self-test: SPDX
+  headers on owned files and rejection of environment-specific values.
+- README quickstart that needs neither a NIC nor DPDK.
+- M0 baseline and M1 software I/O reports in `docs/reports/`.
+
+### Changed
+
+- Clippy runs with `--locked`, and checks fail when they modify the working tree,
+  so a stale `Cargo.lock` can no longer pass.
+- Added SPDX headers to all files introduced by this fork.
+
+### Removed
+
+- Workstation, session and private path references from design and report documents.
+
+### Fixed
+
+- Preserve due trace heads for actual-time TX arbitration.
+- Enforce the finite trace horizon before all intentional loss outcomes.

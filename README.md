@@ -43,6 +43,23 @@ is derived from the configured `half_life_period_ns` and the measured packet
 rate, so the *effective* correlation half-life stays constant in wall-clock time
 regardless of how fast packets arrive.
 
+## Quickstart (no NIC, no DPDK)
+
+The engine needs only a stable Rust toolchain:
+
+```sh
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh   # if Rust is missing
+git clone https://github.com/markhhm/DPDS-Core.git dpds-core
+cd dpds-core
+cargo build --release --locked
+cargo test --locked
+```
+
+`cargo test` runs the legacy and HNG engine tests, including the scheduler
+oracle fixtures. To push real packets through the engine without a physical
+NIC, use the DPDS host, which embeds this repository as a submodule: its README
+quickstart runs the `net_null` and `net_pcap` software ports.
+
 ## Building
 
 Requires a stable Rust toolchain.
@@ -177,19 +194,27 @@ documented in [docs/HNG-API.md](docs/HNG-API.md). Its contract is
 
 Licensed under the [Apache License, Version 2.0](LICENSE).
 
-## Required pre-push checks
+## Checks, pre-push hook and CI
 
-After cloning (and initializing the host submodule), install the versioned hook:
+`scripts/check.sh` is the complete check suite. It runs the open-source policy
+scan (`scripts/check-policy.sh`: SPDX headers and environment-specific values
+such as lab hostnames, personal paths or private IP addresses) and its
+self-test, `cargo fmt --check`, `cargo clippy --locked --all-targets -- -D warnings`,
+and `cargo test --locked`, then fails if any check modified the working tree
+(for example a stale `Cargo.lock`). GitHub Actions (`.github/workflows/ci.yml`)
+and the pre-push hook run this same script.
+
+Install the versioned hook after cloning:
 
 ```sh
 ./scripts/install-hooks.sh
 ```
 
-The hook runs `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, and
-`cargo test --locked`.
-It checks a clean checkout of the exact commit being pushed. Check out each
+The hook checks a clean checkout of the exact commit being pushed. Check out each
 commit before pushing another branch. Deletions need no build. A check failure
-blocks the push; fix the failure or report missing tools to the lead. Never
-bypass hooks. The installer refuses to replace a different existing hook.
-Keep the build environment (Cargo, Meson, DPDK pkg-config and runtime library
-paths) available in the shell that performs the push.
+blocks the push; fix the failure or the missing tool. Never bypass hooks. The
+installer refuses to replace a different existing hook.
+
+Upstream files that never carried an SPDX header are listed in
+`scripts/spdx-exempt.txt`; new files must carry one. Any accepted policy-scan
+hit must be listed explicitly in `scripts/env-allow.txt`.

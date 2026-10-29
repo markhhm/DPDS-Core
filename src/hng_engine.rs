@@ -541,3 +541,148 @@ pub unsafe extern "C" fn hng_engine_abort_destroy(engine: *mut Engine) -> bool {
     drop(Box::from_raw(engine));
     true
 }
+
+// Line handles. A scheduler owner may hold handles for a subset of lines and
+// use them while another owner uses handles for other lines of the same
+// Engine. Each handle must have one owner at a time, and no `hng_engine_*`
+// call may run while any handle is in use: those calls borrow the whole Engine.
+
+/// Handle for one line, or NULL for an invalid index. Take handles before
+/// launching owner threads; they stay valid until the Engine is destroyed.
+/// # Safety
+/// Engine is NULL or live and not in use by any other call.
+#[no_mangle]
+pub unsafe extern "C" fn hng_engine_line(engine: *mut Engine, line: usize) -> *mut Line {
+    match engine.as_mut() {
+        Some(e) if line < e.lines.len() => e.lines.as_mut_ptr().add(line),
+        _ => std::ptr::null_mut(),
+    }
+}
+
+/// Same contract as `hng_engine_offer`, for one line handle.
+/// # Safety
+/// Line is NULL or a live handle owned by the calling thread.
+#[no_mangle]
+pub unsafe extern "C" fn hng_line_offer(
+    line: *mut Line,
+    packet: *mut std::ffi::c_void,
+    bytes: u32,
+    arrival_ns: u64,
+    seq: u64,
+) -> PushResult {
+    line.as_mut().map_or(PushResult::InvalidInput, |l| {
+        l.buffer.push_with_seq(packet, bytes, arrival_ns, seq)
+    })
+}
+
+/// Same contract as `hng_engine_peek`.
+/// # Safety
+/// Line is NULL or a live handle owned by the calling thread; out is NULL or writable.
+#[no_mangle]
+pub unsafe extern "C" fn hng_line_peek(
+    line: *const Line,
+    now_ns: u64,
+    watermark_ns: u64,
+    out: *mut HngPacket,
+) -> bool {
+    match (
+        line.as_ref()
+            .and_then(|l| l.buffer.ready(now_ns, watermark_ns)),
+        out.as_mut(),
+    ) {
+        (Some(p), Some(out)) => {
+            *out = *p;
+            true
+        }
+        _ => false,
+    }
+}
+
+/// Same contract as `hng_engine_pop`.
+/// # Safety
+/// Line is NULL or a live handle owned by the calling thread; out is NULL or writable.
+#[no_mangle]
+pub unsafe extern "C" fn hng_line_pop(
+    line: *mut Line,
+    now_ns: u64,
+    watermark_ns: u64,
+    out: *mut HngPacket,
+) -> bool {
+    match (
+        out.as_mut(),
+        line.as_mut()
+            .filter(|_| !out.is_null())
+            .and_then(|l| l.buffer.try_pop(now_ns, watermark_ns)),
+    ) {
+        (Some(out), Some(p)) => {
+            *out = p;
+            true
+        }
+        _ => false,
+    }
+}
+
+/// Same contract as `hng_engine_abort_pop`.
+/// # Safety
+/// Line is NULL or a live handle owned by the calling thread; out is NULL or writable.
+#[no_mangle]
+pub unsafe extern "C" fn hng_line_abort_pop(line: *mut Line, out: *mut HngPacket) -> bool {
+    match (
+        out.as_mut(),
+        line.as_mut()
+            .filter(|_| !out.is_null())
+            .and_then(|l| l.buffer.pop()),
+    ) {
+        (Some(out), Some(p)) => {
+            *out = p;
+            true
+        }
+        _ => false,
+    }
+}
+
+/// # Safety
+/// Line is NULL or a live handle owned by the calling thread; out is NULL or writable.
+#[no_mangle]
+pub unsafe extern "C" fn hng_line_stats(line: *const Line, out: *mut HngStats) -> bool {
+    match (line.as_ref(), out.as_mut()) {
+        (Some(l), Some(out)) => {
+            *out = l.buffer.stats();
+            true
+        }
+        _ => false,
+    }
+}
+
+/// # Safety
+/// Line is NULL or a live handle owned by the calling thread.
+#[no_mangle]
+pub unsafe extern "C" fn hng_line_min_delay(line: *const Line) -> u64 {
+    line.as_ref().map_or(0, |l| l.buffer.min_delay_ns())
+}
+
+/// Seal input for this line only; see `hng_engine_end_input`.
+/// # Safety
+/// Line is NULL or a live handle owned by the calling thread.
+#[no_mangle]
+pub unsafe extern "C" fn hng_line_end_input(line: *mut Line) {
+    if let Some(l) = line.as_mut() {
+        l.buffer.end_input();
+    }
+}
+
+/// See `hng_engine_drain_advance`; false for NULL or unsealed input.
+/// # Safety
+/// Line is NULL or a live handle owned by the calling thread.
+#[no_mangle]
+pub unsafe extern "C" fn hng_line_drain_advance(line: *mut Line, now_ns: u64) -> bool {
+    line.as_mut()
+        .is_some_and(|l| l.buffer.drain_advance(now_ns))
+}
+
+/// # Safety
+/// Line is NULL or a live handle owned by the calling thread.
+#[no_mangle]
+pub unsafe extern "C" fn hng_line_has_backlog(line: *const Line) -> bool {
+    line.as_ref().is_some_and(|l| l.buffer.has_backlog())
+}

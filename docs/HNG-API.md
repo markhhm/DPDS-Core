@@ -126,3 +126,14 @@ watermarks, storage occupancy, model loss, trace loss and invalid input. Host
 ring/NIC/mempool/TX counters remain separate. PMD TX acceptance is not proof of
 wire delivery. This API and its offline tests do not provide the independent
 full-ingress/receiver observer or hardware G2 certification.
+
+## Line handles for per-direction scheduler owners
+
+`hng_engine_line(engine, i)` returns a handle for line `i`. The `hng_line_*`
+functions (offer, peek, pop, abort_pop, stats, min_delay, end_input,
+drain_advance, has_backlog) have the same contracts as the matching
+`hng_engine_*` functions, but borrow only that line. Two owner threads may use
+handles for disjoint lines of one engine at the same time, for example one
+owner per ingress port. Each handle has one owner at a time. No `hng_engine_*`
+call may run while a handle is in use, because those calls borrow the whole
+engine. Take the handles before launching the owners.

@@ -133,3 +133,91 @@ fn metadata_reservation_is_exact_per_storage_slot() {
     assert_eq!(unsafe { hng_engine_metadata_bytes(std::ptr::null()) }, 0);
     drop(unsafe { Box::from_raw(e) });
 }
+
+fn four_lines() -> String {
+    json()
+        .replace("\"vlan_id\":200", "\"vlan_id\":101")
+        .replace("]}", ",")
+        + json()
+            .replace("\"name\":\"cable\"", "\"name\":\"cable-r\"")
+            .replace("\"name\":\"leo\"", "\"name\":\"leo-r\"")
+            .replace("\"vlan_id\":200", "\"vlan_id\":101")
+            .replace(
+                "\"ingress_port\":0,\"egress_port\":1",
+                "\"ingress_port\":1,\"egress_port\":0",
+            )
+            .split_once("\"lines\":[")
+            .unwrap()
+            .1
+}
+
+/// Line handles give each owner thread exclusive access to its own lines.
+#[test]
+fn line_handles_match_engine_calls_and_run_concurrently() {
+    use dpds_core::hng::{HngPacket, PushResult};
+    use dpds_core::hng_engine::*;
+    let run = |split: bool| -> Vec<Vec<(u64, u64)>> {
+        let e = Box::into_raw(Box::new(Engine::from_json(&four_lines()).unwrap()));
+        assert_eq!(unsafe { hng_engine_line_count(e) }, 4);
+        assert!(unsafe { hng_engine_line(e, 4) }.is_null());
+        let lines: Vec<usize> = (0..4)
+            .map(|i| unsafe { hng_engine_line(e, i) } as usize)
+            .collect();
+        let eu = e as usize;
+        let work = |owned: Vec<usize>| -> Vec<Vec<(u64, u64)>> {
+            let mut out = vec![Vec::new(); owned.len()];
+            for seq in 0..200u64 {
+                for (k, &i) in owned.iter().enumerate() {
+                    let now = seq * 10;
+                    let ptr = (seq + 1) as usize as *mut std::ffi::c_void;
+                    let r = if split {
+                        unsafe { hng_line_offer(lines[i] as *mut Line, ptr, 76, now, seq) }
+                    } else {
+                        unsafe { hng_engine_offer(eu as *mut Engine, i, ptr, 76, now, seq) }
+                    };
+                    assert!(matches!(r, PushResult::Accepted | PushResult::QDrop));
+                    let mut p = std::mem::MaybeUninit::<HngPacket>::uninit();
+                    while unsafe {
+                        if split {
+                            hng_line_pop(lines[i] as *mut Line, now, now, p.as_mut_ptr())
+                        } else {
+                            hng_engine_pop(eu as *mut Engine, i, now, now, p.as_mut_ptr())
+                        }
+                    } {
+                        let p = unsafe { p.assume_init() };
+                        out[k].push((p.ingress_seq, p.release_ns));
+                    }
+                }
+            }
+            out
+        };
+        let result = if split {
+            std::thread::scope(|scope| {
+                let a = scope.spawn(|| work(vec![0, 1]));
+                let b = scope.spawn(|| work(vec![2, 3]));
+                let mut r = a.join().unwrap();
+                r.extend(b.join().unwrap());
+                r
+            })
+        } else {
+            work(vec![0, 1, 2, 3])
+        };
+        for &handle in &lines {
+            let l = handle as *mut Line;
+            unsafe { hng_line_end_input(l) };
+            assert!(unsafe { hng_line_drain_advance(l, u64::MAX / 2) });
+            let mut p = std::mem::MaybeUninit::<HngPacket>::uninit();
+            while unsafe { hng_line_abort_pop(l, p.as_mut_ptr()) } {}
+            assert!(!unsafe { hng_line_has_backlog(l) });
+            assert_eq!(unsafe { hng_line_min_delay(l) }, 0);
+            let mut s = std::mem::MaybeUninit::uninit();
+            assert!(unsafe { hng_line_stats(l, s.as_mut_ptr()) });
+            assert!(!unsafe { hng_line_peek(l, 0, 0, std::ptr::null_mut()) });
+        }
+        assert!(unsafe { hng_engine_destroy(e) });
+        result
+    };
+    let single = run(false);
+    assert!(single.iter().all(|v| !v.is_empty()));
+    assert_eq!(single, run(true));
+}

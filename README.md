@@ -1,5 +1,13 @@
 # dpds-core
 
+## HNG fork
+
+This fork builds on [uni-tue-kn/DPDS-Core](https://github.com/uni-tue-kn/DPDS-Core)
+by Etienne Zink and the upstream DPDS project. The original Apache-2.0 license
+and author metadata are retained. The proposed HNG scheduling contract and
+validation plan are in [docs/HNG-DESIGN.md](docs/HNG-DESIGN.md); that document
+does not claim that the design is implemented or hardware-validated.
+
 `dpds-core` is the core of **DPDS**, a software **network-link emulator**. It
 models the three effects a real network link imposes on packets — **delay**,
 **rate limiting**, and **packet loss** — and exposes them through a small **C

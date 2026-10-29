@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+
 # P1 M0 / M2 execution plan
 
 **Goal:** Independently reproduce M0 and enforce checks before starting the

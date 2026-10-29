@@ -382,6 +382,11 @@ and must be evaluated by the routing/trace oracle, not concealed by flow pinning
 
 ### Trace lookup and monotone deadline
 
+M3 equality is configured interval-delay equality. P1 retains global clamping;
+it does not add route FIFO to match a different engine's release order. See
+[the registered comparison semantics](TRACE-SEMANTICS.md) for the nonqueueing
+packet-comparison restriction and the lookup/loss differences under load.
+
 Define `e_i = s_ns_i`, the rounded virtual **completion of C/Q service**, not
 RX arrival, worker wall time or TX time. This fixes the meaning of e in the
 requested formula. Read trace t at that e relative to a common registered run

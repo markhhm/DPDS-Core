@@ -6,6 +6,9 @@ These tools convert **configured delays**, not packet release order. They run
 without DPDK, a kernel module, hugepages or a NIC. Python 3.11+ and NumPy 2.x are
 required. The Rust engine has no Python, NumPy or DPDK dependency.
 
+The [registered trace semantics](TRACE-SEMANTICS.md) define configured equality,
+engine lookup/loss differences, canonical eligibility and terminal coverage.
+
 ## Synthetic quick start
 
 Run from the repository root in a fresh output directory:

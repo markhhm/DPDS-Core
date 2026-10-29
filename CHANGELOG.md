@@ -10,6 +10,8 @@ fork has been released yet.
 
 ### Added
 
+- Registered M3 configured-equality semantics and documented cross-engine
+  lookup, loss and release-order differences (`docs/TRACE-SEMANTICS.md`).
 - Independent offline Garcia ZIP converter and configured-row comparator,
   source hashes and versioned recipes, and source-versus-configured late-run
   diagnostics (`docs/TRACE-TOOLS.md`). Synthetic Python tests run in the same

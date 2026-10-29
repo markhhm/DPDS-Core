@@ -478,6 +478,11 @@ impl HngBuffer {
         self.pop()
     }
 
+    /// Bytes reserved for both packet FIFOs and the service ledger.
+    pub fn metadata_bytes(&self) -> usize {
+        (self.ordinary.capacity() + self.late.capacity()) * std::mem::size_of::<HngPacket>()
+            + self.service.capacity() * std::mem::size_of::<Service>()
+    }
     pub fn min_delay_ns(&self) -> u64 {
         self.minimum_delay_ns
     }
@@ -514,6 +519,11 @@ impl HngBuffer {
         self.stats.storage_packets -= 1;
         Some(p)
     }
+}
+
+/// Core metadata bytes reserved per storage slot: two FIFO entries and a ledger entry.
+pub fn slot_metadata_bytes() -> usize {
+    2 * std::mem::size_of::<HngPacket>() + std::mem::size_of::<Service>()
 }
 
 /// SplitMix64 finalizer with fixed wrapping arithmetic, stable across builds.

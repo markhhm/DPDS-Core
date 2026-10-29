@@ -41,6 +41,9 @@ Q, worst-case delay and the registered burst envelope. It also reserves both
 FIFOs and the service ledger before traffic. The host adds actual PMD, ring,
 cache and pending-TX reserves to its mbuf pools. These are resource checks,
 not a proof that a particular CPU, packet mix or NUMA layout sustains 100G.
+`hng_slot_metadata_bytes()` returns the core metadata reserved per storage slot
+(two FIFO entries and one ledger entry), and `hng_engine_metadata_bytes(engine)`
+the bytes actually reserved by all lines. The host pool calculator uses both.
 
 ## Trace files
 

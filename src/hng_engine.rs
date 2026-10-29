@@ -467,6 +467,22 @@ pub unsafe extern "C" fn hng_engine_min_delay(engine: *const Engine, line: usize
         .map_or(0, |l| l.buffer.min_delay_ns())
 }
 
+/// Core metadata bytes reserved per storage slot (both FIFOs and the ledger).
+#[no_mangle]
+pub extern "C" fn hng_slot_metadata_bytes() -> usize {
+    crate::hng::slot_metadata_bytes()
+}
+
+/// Core metadata bytes actually reserved by all lines; 0 for NULL.
+/// # Safety
+/// Engine is NULL or live; caller serializes with mutation.
+#[no_mangle]
+pub unsafe extern "C" fn hng_engine_metadata_bytes(engine: *const Engine) -> usize {
+    engine.as_ref().map_or(0, |e| {
+        e.lines.iter().map(|l| l.buffer.metadata_bytes()).sum()
+    })
+}
+
 /// # Safety
 /// Live Engine; caller serializes with mutation.
 #[no_mangle]

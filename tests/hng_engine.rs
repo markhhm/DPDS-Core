@@ -121,3 +121,15 @@ fn documented_hardware_free_four_state_example_validates() {
         4
     );
 }
+
+#[test]
+fn metadata_reservation_is_exact_per_storage_slot() {
+    use dpds_core::hng_engine::{hng_engine_metadata_bytes, hng_slot_metadata_bytes};
+    let e = Box::into_raw(Box::new(Engine::from_json(&json()).unwrap()));
+    let slot = hng_slot_metadata_bytes();
+    // Two packet FIFOs and the service ledger, each reserved at the slot capacity.
+    assert!(slot >= 2 * std::mem::size_of::<dpds_core::hng::HngPacket>());
+    assert_eq!(unsafe { hng_engine_metadata_bytes(e) }, 2 * 32 * slot);
+    assert_eq!(unsafe { hng_engine_metadata_bytes(std::ptr::null()) }, 0);
+    drop(unsafe { Box::from_raw(e) });
+}

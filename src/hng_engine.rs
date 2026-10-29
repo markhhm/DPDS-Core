@@ -214,6 +214,21 @@ impl Engine {
                 if c.model.t_ns != 0 {
                     return Err("trace model.t_ns must be zero; delay comes from the trace".into());
                 }
+                if t.terminal == crate::hng::TerminalPolicy::HoldLastSample {
+                    let q = u128::from(c.model.q_bytes);
+                    let frames = q / u128::from(c.envelope.min_q_bytes);
+                    let wire_ns = (q + 20 * frames) * 8_000_000_000u128;
+                    let drain = wire_ns.div_ceil(u128::from(c.model.c_bps));
+                    let required =
+                        u128::from(t.max_delay_ns()) + u128::from(c.model.delta_ns) + drain;
+                    let extension = t.terminal_horizon_ns.unwrap() - t.end_ns;
+                    if u128::from(extension) < required {
+                        return Err(format!(
+                            "{}: terminal HOLD extension {extension} ns is below t+delta+Q drain {required} ns for actual line C/Q",
+                            c.name
+                        ));
+                    }
+                }
                 t.max_delay_ns()
                     .checked_add(if t.outage_action == crate::hng::OutageAction::Hold {
                         t.max_hold_ns()

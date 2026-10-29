@@ -1,0 +1,14 @@
+# SPDX-License-Identifier: Apache-2.0
+# Files inherited from the upstream initial commit (uni-tue-kn/DPDS-Core),
+# which never carried an SPDX header. They remain under the repository's
+# Apache-2.0 LICENSE. New files must carry a header instead of being listed here.
+.gitignore
+Cargo.toml
+README.md
+build.rs
+cbindgen.toml
+src/buffer.rs
+src/delayer.rs
+src/dropper.rs
+src/lib.rs
+src/limiter.rs

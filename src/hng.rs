@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! Fixed-run HNG scheduler. One instance owns one direction's shared C/Q.
 use serde::{Deserialize, Deserializer};
 use std::{collections::VecDeque, ffi::c_void, str::FromStr};

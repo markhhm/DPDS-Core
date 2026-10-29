@@ -221,3 +221,48 @@ fn line_handles_match_engine_calls_and_run_concurrently() {
     assert!(single.iter().all(|v| !v.is_empty()));
     assert_eq!(single, run(true));
 }
+
+#[test]
+fn offer_record_matches_the_record_pop_returns() {
+    use dpds_core::hng::{HngPacket, PushResult};
+    use dpds_core::hng_engine::*;
+    let e = Box::into_raw(Box::new(Engine::from_json(&four_lines()).unwrap()));
+    let l = unsafe { hng_engine_line(e, 0) };
+    let mut offered = Vec::new();
+    for seq in 0..50u64 {
+        let mut r = std::mem::MaybeUninit::<HngPacket>::uninit();
+        let ptr = (seq + 1) as usize as *mut std::ffi::c_void;
+        match unsafe { hng_line_offer_record(l, ptr, 76, seq * 5, seq, r.as_mut_ptr()) } {
+            PushResult::Accepted => offered.push(unsafe { r.assume_init() }),
+            PushResult::QDrop => {}
+            other => panic!("unexpected {other:?}"),
+        }
+    }
+    assert!(!offered.is_empty() && offered.len() < 50);
+    let null = std::ptr::null_mut();
+    assert_eq!(
+        unsafe { hng_line_offer_record(l, 7 as *mut _, 76, 10_000, 99, null) },
+        PushResult::Accepted
+    );
+    let mut p = std::mem::MaybeUninit::<HngPacket>::uninit();
+    let mut popped = Vec::new();
+    while unsafe { hng_line_pop(l, u64::MAX / 2, u64::MAX / 2, p.as_mut_ptr()) } {
+        popped.push(unsafe { p.assume_init() });
+    }
+    let key = |p: &HngPacket| {
+        (
+            p.packet_ptr as usize,
+            p.deadline_ns,
+            p.release_ns,
+            p.service_ns,
+        )
+    };
+    let mut a: Vec<_> = offered.iter().map(key).collect();
+    let mut b: Vec<_> = popped.iter().map(key).filter(|k| k.0 != 7).collect();
+    a.sort();
+    b.sort();
+    assert_eq!(a, b);
+    unsafe { hng_line_end_input(l) };
+    assert!(unsafe { hng_line_drain_advance(l, u64::MAX / 2) });
+    assert!(unsafe { hng_engine_destroy(e) });
+}

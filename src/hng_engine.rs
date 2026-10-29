@@ -575,6 +575,26 @@ pub unsafe extern "C" fn hng_line_offer(
     })
 }
 
+/// Like `hng_line_offer`. On ACCEPTED, also writes the stored record (release,
+/// deadline and sequence numbers never change after admission) to `out`
+/// unless it is NULL, so the host can annotate the packet while it is cached.
+/// # Safety
+/// Line is NULL or a live handle owned by the calling thread; out is NULL or writable.
+#[no_mangle]
+pub unsafe extern "C" fn hng_line_offer_record(
+    line: *mut Line,
+    packet: *mut std::ffi::c_void,
+    bytes: u32,
+    arrival_ns: u64,
+    seq: u64,
+    out: *mut HngPacket,
+) -> PushResult {
+    line.as_mut().map_or(PushResult::InvalidInput, |l| {
+        l.buffer
+            .push_with_record(packet, bytes, arrival_ns, seq, out.as_mut())
+    })
+}
+
 /// Same contract as `hng_engine_peek`.
 /// # Safety
 /// Line is NULL or a live handle owned by the calling thread; out is NULL or writable.

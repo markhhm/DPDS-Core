@@ -242,7 +242,19 @@ impl HngBuffer {
         now_ns: u64,
         seq: u64,
     ) -> PushResult {
-        let result = self.admit(packet_ptr, packet_bytes, now_ns, seq);
+        self.push_with_record(packet_ptr, packet_bytes, now_ns, seq, None)
+    }
+
+    /// Like `push_with_seq`; an accepted packet's record is also copied to `record`.
+    pub fn push_with_record(
+        &mut self,
+        packet_ptr: *mut c_void,
+        packet_bytes: u32,
+        now_ns: u64,
+        seq: u64,
+        record: Option<&mut HngPacket>,
+    ) -> PushResult {
+        let result = self.admit(packet_ptr, packet_bytes, now_ns, seq, record);
         match result {
             PushResult::Accepted => {}
             PushResult::QDrop => {
@@ -276,6 +288,7 @@ impl HngBuffer {
         packet_bytes: u32,
         now_ns: u64,
         seq: u64,
+        record: Option<&mut HngPacket>,
     ) -> PushResult {
         if self.input_complete
             || packet_ptr.is_null()
@@ -391,6 +404,9 @@ impl HngBuffer {
             wire_bytes,
             late,
         };
+        if let Some(r) = record {
+            *r = packet;
+        }
         if late {
             self.late.push_back(packet);
             self.stats.selected_late += 1;

@@ -81,7 +81,16 @@ A modeled survivor discarded because actual TX time is down is a non-model
 by eligible cable traffic, while each line preserves its own order.
 
 `hold_last_sample` extends the last trace values only through the declared
-horizon. It is different from outage hold. Coverage exhaustion is invalid;
+horizon. Before RX, `Engine::from_json` requires the extension to cover
+`max(t) + delta + queue_drain`, using the actual line rather than trusting a
+converter allowance. The conservative bound in ns is
+`ceil((q_bytes + 20*floor(q_bytes/min_q_bytes))*8e9/c_bps)`:
+Q contains L2 bytes including the in-service packet, and each admitted frame
+adds 20 wire bytes. Integer ceiling preserves fractional-ns drain time. For
+Q=80 bytes, minimum frame=80 bytes and C=8 Gbit/s, drain is 100 ns; a zero
+allowance fails. The horizon remains exclusive, so stop admissions at the
+registered end and drain before it. This check is different from outage hold.
+Coverage exhaustion is invalid;
 the engine never wraps or silently concatenates traces. Source conversion and
 the 05:15/10:00 splice protocol remain experiment responsibilities. The clamp
 does not validate splicing or reproduce source packet-specific reordering.

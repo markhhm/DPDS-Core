@@ -10,6 +10,9 @@ fork has been released yet.
 
 ### Added
 
+- Startup validation of terminal HOLD against actual line C/Q wire-drain bounds,
+  including per-frame wire overhead and integer-ceiling boundaries.
+
 - Actual engine-output late-run and conditional-lateness measurements for trace
   and fixed two-point modes; a separately marked fidelity-tolerance proposal.
 - Offline `trace_replay` HngBuffer executable and an independent Fraction oracle

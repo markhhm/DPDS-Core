@@ -121,3 +121,47 @@ fn documented_hardware_free_four_state_example_validates() {
         4
     );
 }
+
+#[test]
+fn terminal_hold_covers_actual_line_delay_and_queue_wire_drain() {
+    let path = std::env::temp_dir().join(format!("hng-hold-drain-{}.json", std::process::id()));
+    let mut trace: serde_json::Value =
+        serde_json::from_str(include_str!("fixtures/trace.json")).unwrap();
+    let mut config: serde_json::Value = serde_json::from_str(&json()).unwrap();
+    config["lines"].as_array_mut().unwrap().truncate(1);
+    // 80/160 L2 bytes plus 20 wire bytes per frame: 100/200 ns at 8 Gbit/s.
+    for (q, rate, required_drain) in [
+        (80, 8_000_000_000u64, 100),
+        (160, 8_000_000_000, 200),
+        (80, 3_000_000_000, 267),
+    ] {
+        config["lines"][0]["model"]["q_bytes"] = q.into();
+        config["lines"][0]["model"]["c_bps"] = rate.into();
+        for (allowance, accepted) in [
+            (0, false),
+            (required_drain - 1, false),
+            (required_drain, true),
+        ] {
+            trace["profile"]["terminal_horizon_ns"] = (1000 + 110 + allowance).into();
+            std::fs::write(&path, trace.to_string()).unwrap();
+            let digest = std::process::Command::new("sha256sum")
+                .arg(&path)
+                .output()
+                .unwrap();
+            assert!(digest.status.success());
+            let digest = String::from_utf8(digest.stdout).unwrap();
+            config["lines"][0]["trace"] =
+                serde_json::json!({"path":path,"sha256":digest.split_whitespace().next().unwrap()});
+            let loaded = Engine::from_json(&config.to_string());
+            assert_eq!(
+                loaded.is_ok(),
+                accepted,
+                "q={q}, C={rate}, queue allowance={allowance}"
+            );
+            if !accepted {
+                assert!(loaded.err().unwrap().contains("HOLD"));
+            }
+        }
+    }
+    std::fs::remove_file(path).unwrap();
+}

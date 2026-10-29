@@ -26,7 +26,7 @@ with ZipFile('target/trace-example/synthetic.zip', 'w') as archive:
 PY
 python scripts/garcia_trace.py target/trace-example/synthetic.zip \
   target/trace-example/normalized.json \
-  --start-ns 0 --duration-ns 15000000 --offset-ns 0 --queue-drain-ns 0
+  --start-ns 0 --duration-ns 15000000 --offset-ns 0 --queue-drain-ns 100
 python scripts/compare_trace.py target/trace-example/normalized.json \
   tests/fixtures/theaterq-synthetic.csv \
   --source target/trace-example/synthetic.zip \
@@ -84,7 +84,9 @@ python scripts/garcia_trace.py SOURCE.zip OUTPUT.json
   to zero and only enlarges the coverage budget. It never inserts late packets.
   The recipe records each component and extension; the profile records the
   finite horizon. Without a queue budget, conversion is diagnostic-only with
-  terminal error. A real replay must declare its actual maximum queue drain.
+  terminal error. A real replay must declare its actual maximum queue drain. The engine loader
+  independently verifies the extension against its line C/Q and frame envelope;
+  a caller-supplied zero is not sufficient for a nonempty queue.
 
 The ZIP and uncompressed member are each limited to 128 MiB per run. At least
 two samples are required. Noninteger/negative values, duplicate sequence numbers,

@@ -102,15 +102,23 @@ pub enum PushResult {
     QDrop,
     StorageDrop,
     InvalidInput,
+    TraceLoss,
+    TraceOutage,
 }
+
+pub use crate::hng_trace::{OutageAction, TerminalPolicy, TraceProfile, TraceRow};
+use crate::hng_trace::{TracePolicy, TxPolicy};
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct HngPacket {
     pub packet_ptr: *mut c_void,
     pub ingress_seq: u64,
+    pub selection_seq: u64,
     pub service_ns: u64,
     pub deadline_ns: u64,
+    pub release_ns: u64,
+    pub clamp_extra_ns: u64,
     pub packet_bytes: u32,
     pub l2_bytes: u64,
     pub wire_bytes: u64,
@@ -143,6 +151,13 @@ pub struct HngStats {
     pub storage_packets: u64,
     pub storage_high_water_packets: u64,
     pub admission_watermark_ns: u64,
+    pub trace_loss_drops: u64,
+    pub trace_loss_bytes: u64,
+    pub trace_outage_drops: u64,
+    pub trace_outage_bytes: u64,
+    pub clamp_packets: u64,
+    pub clamp_extra_ns: u64,
+    pub clamp_max_ns: u64,
 }
 
 struct Service {
@@ -159,7 +174,13 @@ pub struct HngBuffer {
     finish: u128,
     last_arrival_ns: u64,
     next_seq: u64,
+    next_selection_seq: u64,
+    input_complete: bool,
     stats: HngStats,
+    trace: Option<TracePolicy>,
+    trace_cursor: usize,
+    trace_deadline_ns: u64,
+    minimum_delay_ns: u64,
 }
 
 impl HngBuffer {
@@ -184,8 +205,25 @@ impl HngBuffer {
             finish: 0,
             last_arrival_ns: 0,
             next_seq: 0,
+            next_selection_seq: 0,
+            input_complete: false,
             stats: HngStats::default(),
+            trace: None,
+            trace_cursor: 0,
+            trace_deadline_ns: 0,
+            minimum_delay_ns: config.t_ns,
         })
+    }
+
+    pub fn with_trace(config: HngConfig, trace: TraceProfile) -> Result<Self, &'static str> {
+        trace.validate()?;
+        if config.p != Probability::ZERO || config.delta_ns != 0 {
+            return Err("trace per-packet late amounts are reserved, not implemented");
+        }
+        let mut buffer = Self::new(config)?;
+        buffer.minimum_delay_ns = trace.rows.iter().map(|r| r.t_ns).min().unwrap_or(0);
+        buffer.trace = Some(TracePolicy::new(trace)?);
+        Ok(buffer)
     }
 
     pub fn push(&mut self, packet_ptr: *mut c_void, packet_bytes: u32, now_ns: u64) -> PushResult {
@@ -215,6 +253,14 @@ impl HngBuffer {
                 self.stats.invalid_drops += 1;
                 self.stats.invalid_drop_bytes += packet_bytes as u64;
             }
+            PushResult::TraceLoss => {
+                self.stats.trace_loss_drops += 1;
+                self.stats.trace_loss_bytes += u64::from(packet_bytes);
+            }
+            PushResult::TraceOutage => {
+                self.stats.trace_outage_drops += 1;
+                self.stats.trace_outage_bytes += u64::from(packet_bytes);
+            }
         }
         result
     }
@@ -226,7 +272,8 @@ impl HngBuffer {
         now_ns: u64,
         seq: u64,
     ) -> PushResult {
-        if packet_ptr.is_null()
+        if self.input_complete
+            || packet_ptr.is_null()
             || packet_bytes == 0
             || now_ns < self.last_arrival_ns
             || seq < self.next_seq
@@ -249,8 +296,9 @@ impl HngBuffer {
         let Ok(service_ns) = u64::try_from(service_ns) else {
             return PushResult::InvalidInput;
         };
-        let late = self.config.p.sample(self.config.seed, seq);
-        let Some(deadline_ns) = service_ns
+        let selection_seq = self.next_selection_seq;
+        let late = self.config.p.sample(self.config.seed, selection_seq);
+        let Some(mut deadline_ns) = service_ns
             .checked_add(self.config.t_ns)
             .and_then(|t| t.checked_add(if late { self.config.delta_ns } else { 0 }))
         else {
@@ -261,26 +309,69 @@ impl HngBuffer {
         self.last_arrival_ns = now_ns;
         self.stats.admission_watermark_ns = now_ns;
         self.next_seq = seq + 1;
+        self.next_selection_seq += 1;
         if l2_bytes > self.config.q_bytes || self.stats.q_bytes > self.config.q_bytes - l2_bytes {
             return PushResult::QDrop;
         }
-        if self.len() >= self.config.storage_capacity_packets
-            || u64::from(packet_bytes) > self.config.storage_capacity_bytes
-            || self.stats.storage_bytes
-                > self.config.storage_capacity_bytes - u64::from(packet_bytes)
+        let mut trace_drop = None;
+        let mut trace_cursor = self.trace_cursor;
+        let mut release_ns = deadline_ns;
+        let mut clamp_extra_ns = 0;
+        if let Some(trace) = &self.trace {
+            if service_ns >= trace.profile.end_ns && trace.profile.terminal == TerminalPolicy::Error
+            {
+                return PushResult::InvalidInput;
+            }
+            while trace_cursor + 1 < trace.profile.rows.len()
+                && trace.profile.rows[trace_cursor + 1].at_ns <= service_ns
+            {
+                trace_cursor += 1;
+            }
+            let row = trace.profile.rows[trace_cursor];
+            let Some(raw_deadline_ns) = service_ns.checked_add(row.t_ns) else {
+                return PushResult::InvalidInput;
+            };
+            deadline_ns = raw_deadline_ns.max(self.trace_deadline_ns);
+            clamp_extra_ns = deadline_ns - raw_deadline_ns;
+            if row.loss.sample(trace.profile.loss_seed, selection_seq) {
+                trace_drop = Some(PushResult::TraceLoss);
+            } else {
+                match trace.release(deadline_ns) {
+                    Ok(Some(release)) => release_ns = release,
+                    Ok(None) => trace_drop = Some(PushResult::TraceOutage),
+                    Err(_) => return PushResult::InvalidInput,
+                }
+            }
+        }
+        if self.service.len() >= self.config.storage_capacity_packets
+            || (trace_drop.is_none()
+                && (self.len() >= self.config.storage_capacity_packets
+                    || u64::from(packet_bytes) > self.config.storage_capacity_bytes
+                    || self.stats.storage_bytes
+                        > self.config.storage_capacity_bytes - u64::from(packet_bytes)))
         {
             return PushResult::StorageDrop;
         }
 
         self.finish = finish;
+        self.trace_cursor = trace_cursor;
         self.service.push_back(Service { finish, l2_bytes });
         self.stats.q_bytes += l2_bytes;
         self.stats.q_high_water_bytes = self.stats.q_high_water_bytes.max(self.stats.q_bytes);
+        if let Some(result) = trace_drop {
+            return result;
+        }
+        if self.trace.is_some() {
+            self.trace_deadline_ns = deadline_ns;
+        }
         let packet = HngPacket {
             packet_ptr,
             ingress_seq: seq,
+            selection_seq,
             service_ns,
             deadline_ns,
+            release_ns,
+            clamp_extra_ns,
             packet_bytes,
             l2_bytes,
             wire_bytes,
@@ -291,6 +382,11 @@ impl HngBuffer {
             self.stats.selected_late += 1;
         } else {
             self.ordinary.push_back(packet);
+        }
+        if clamp_extra_ns > 0 {
+            self.stats.clamp_packets += 1;
+            self.stats.clamp_extra_ns += clamp_extra_ns;
+            self.stats.clamp_max_ns = self.stats.clamp_max_ns.max(clamp_extra_ns);
         }
         self.stats.accepted += 1;
         self.stats.accepted_bytes += u64::from(packet_bytes);
@@ -329,7 +425,7 @@ impl HngBuffer {
 
     fn ordinary_first(&self) -> bool {
         match (self.ordinary.front(), self.late.front()) {
-            (Some(a), Some(b)) => (a.deadline_ns, a.ingress_seq) <= (b.deadline_ns, b.ingress_seq),
+            (Some(a), Some(b)) => (a.release_ns, a.ingress_seq) <= (b.release_ns, b.ingress_seq),
             (Some(_), None) => true,
             _ => false,
         }
@@ -343,15 +439,38 @@ impl HngBuffer {
         }
     }
 
-    /// W certifies that all arrivals <= W have been admitted or rejected.
-    pub fn try_pop(&mut self, now_ns: u64, input_watermark_ns: u64) -> Option<HngPacket> {
+    /// W certifies all ingress records with arrival <= W have been processed.
+    pub fn ready(&self, now_ns: u64, input_watermark_ns: u64) -> Option<&HngPacket> {
         let p = self.front()?;
-        if p.deadline_ns > now_ns
-            || p.deadline_ns > input_watermark_ns.saturating_add(self.config.t_ns)
+        if p.release_ns > now_ns
+            || (!self.input_complete
+                && p.release_ns > input_watermark_ns.saturating_add(self.minimum_delay_ns))
+            || self.trace.as_ref().is_some_and(|t| t.gate(now_ns) == 1)
         {
-            return None;
+            None
+        } else {
+            Some(p)
         }
+    }
+
+    pub fn try_pop(&mut self, now_ns: u64, input_watermark_ns: u64) -> Option<HngPacket> {
+        if self.input_complete {
+            self.release_q(now_ns);
+        }
+        self.ready(now_ns, input_watermark_ns)?;
         self.pop()
+    }
+
+    pub fn min_delay_ns(&self) -> u64 {
+        self.minimum_delay_ns
+    }
+    pub fn end_input(&mut self) {
+        self.input_complete = true;
+    }
+    pub fn tx_policy(&self) -> TxPolicy {
+        TxPolicy {
+            trace: self.trace.clone(),
+        }
     }
 
     /// Pop transfers only the stored pointer; the host owns and frees payloads.

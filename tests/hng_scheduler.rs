@@ -397,3 +397,282 @@ fn queued_old_ordinary_packet_prevents_premature_late_output() {
     assert_eq!(b.try_pop(5000, 5000).unwrap().packet_ptr, packet(2));
     assert_eq!(b.try_pop(5000, 5000).unwrap().packet_ptr, packet(1));
 }
+
+#[test]
+fn trace_delay_steps_up_and_down_remain_fifo() {
+    use dpds_core::hng::{TraceProfile, TraceRow};
+    for (delays, deadlines) in [([10, 1000], [110, 1200]), ([1000, 10], [1100, 1100])] {
+        let trace = TraceProfile {
+            outage_action: dpds_core::hng::OutageAction::Drop,
+            terminal: dpds_core::hng::TerminalPolicy::Error,
+            loss_seed: 7,
+            end_ns: 10_000,
+            rows: vec![
+                TraceRow {
+                    at_ns: 0,
+                    t_ns: delays[0],
+                    loss: Probability::ZERO,
+                    outage: false,
+                },
+                TraceRow {
+                    at_ns: 200,
+                    t_ns: delays[1],
+                    loss: Probability::ZERO,
+                    outage: false,
+                },
+            ],
+        };
+        let mut b = HngBuffer::with_trace(
+            HngConfig {
+                q_bytes: 160,
+                ..config()
+            },
+            trace,
+        )
+        .unwrap();
+        assert_eq!(b.push(packet(1), 76, 0), PushResult::Accepted);
+        assert_eq!(b.push(packet(2), 76, 0), PushResult::Accepted);
+        for (id, deadline) in [1, 2].into_iter().zip(deadlines) {
+            let p = b.try_pop(10_000, u64::MAX).unwrap();
+            assert_eq!((p.packet_ptr, p.deadline_ns), (packet(id), deadline));
+        }
+    }
+}
+
+#[test]
+fn trace_loss_outage_and_end_are_distinct_from_q_or_storage_loss() {
+    use dpds_core::hng::{TraceProfile, TraceRow};
+    let trace = TraceProfile {
+        outage_action: dpds_core::hng::OutageAction::Drop,
+        terminal: dpds_core::hng::TerminalPolicy::Error,
+        loss_seed: 7,
+        end_ns: 400,
+        rows: vec![
+            TraceRow {
+                at_ns: 0,
+                t_ns: 10,
+                loss: Probability::ZERO,
+                outage: false,
+            },
+            TraceRow {
+                at_ns: 200,
+                t_ns: 10,
+                loss: Probability::ONE,
+                outage: false,
+            },
+            TraceRow {
+                at_ns: 300,
+                t_ns: 10,
+                loss: Probability::ZERO,
+                outage: true,
+            },
+        ],
+    };
+    let mut b = HngBuffer::with_trace(
+        HngConfig {
+            q_bytes: 800,
+            ..config()
+        },
+        trace,
+    )
+    .unwrap();
+    for (id, expected) in [
+        (1, PushResult::Accepted),
+        (2, PushResult::TraceLoss),
+        (3, PushResult::TraceOutage),
+        (4, PushResult::InvalidInput),
+    ] {
+        assert_eq!(b.push(packet(id), 76, 0), expected);
+    }
+    let s = b.stats();
+    assert_eq!(
+        (s.q_bytes, s.trace_loss_drops, s.trace_outage_drops),
+        (240, 1, 1)
+    );
+    assert_eq!((s.q_drops, s.storage_drops), (0, 0));
+    assert_eq!(b.pop().unwrap().packet_ptr, packet(1));
+    assert!(b.pop().is_none());
+}
+
+#[test]
+fn malformed_trace_and_unimplemented_packet_late_mode_are_rejected() {
+    use dpds_core::hng::{TraceProfile, TraceRow};
+    let row = TraceRow {
+        at_ns: 0,
+        t_ns: 10,
+        loss: Probability::ZERO,
+        outage: false,
+    };
+    for trace in [
+        TraceProfile {
+            outage_action: dpds_core::hng::OutageAction::Drop,
+            terminal: dpds_core::hng::TerminalPolicy::Error,
+            loss_seed: 7,
+            end_ns: 100,
+            rows: vec![],
+        },
+        TraceProfile {
+            outage_action: dpds_core::hng::OutageAction::Drop,
+            terminal: dpds_core::hng::TerminalPolicy::Error,
+            loss_seed: 7,
+            end_ns: 100,
+            rows: vec![TraceRow { at_ns: 1, ..row }],
+        },
+        TraceProfile {
+            outage_action: dpds_core::hng::OutageAction::Drop,
+            terminal: dpds_core::hng::TerminalPolicy::Error,
+            loss_seed: 7,
+            end_ns: 100,
+            rows: vec![row, row],
+        },
+        TraceProfile {
+            outage_action: dpds_core::hng::OutageAction::Drop,
+            terminal: dpds_core::hng::TerminalPolicy::Error,
+            loss_seed: 7,
+            end_ns: 0,
+            rows: vec![row],
+        },
+    ] {
+        assert!(HngBuffer::with_trace(config(), trace).is_err());
+    }
+    assert!(HngBuffer::with_trace(
+        HngConfig {
+            p: Probability::ONE,
+            delta_ns: 1,
+            ..config()
+        },
+        TraceProfile {
+            outage_action: dpds_core::hng::OutageAction::Drop,
+            terminal: dpds_core::hng::TerminalPolicy::Error,
+            loss_seed: 7,
+            end_ns: 100,
+            rows: vec![row]
+        }
+    )
+    .is_err());
+}
+
+#[test]
+fn trace_outage_hold_and_drop_apply_at_candidate_deadline() {
+    use dpds_core::hng::{OutageAction, TerminalPolicy, TraceProfile, TraceRow};
+    for action in [OutageAction::Hold, OutageAction::Drop] {
+        let trace = TraceProfile {
+            outage_action: action,
+            terminal: TerminalPolicy::HoldLast,
+            loss_seed: 42,
+            end_ns: 1000,
+            rows: vec![
+                TraceRow {
+                    at_ns: 0,
+                    t_ns: 110,
+                    loss: Probability::ZERO,
+                    outage: false,
+                },
+                TraceRow {
+                    at_ns: 200,
+                    t_ns: 20,
+                    loss: Probability::ZERO,
+                    outage: true,
+                },
+                TraceRow {
+                    at_ns: 300,
+                    t_ns: 10,
+                    loss: Probability::ZERO,
+                    outage: false,
+                },
+            ],
+        };
+        let mut b = HngBuffer::with_trace(
+            HngConfig {
+                q_bytes: 800,
+                ..config()
+            },
+            trace,
+        )
+        .unwrap();
+        for i in 1..=3 {
+            assert_eq!(
+                b.push(packet(i), 76, 0),
+                if action == OutageAction::Drop && i < 3 {
+                    PushResult::TraceOutage
+                } else {
+                    PushResult::Accepted
+                }
+            );
+        }
+        if action == OutageAction::Hold {
+            assert!(b.try_pop(250, u64::MAX).is_none());
+            for id in [1, 2] {
+                let p = b.try_pop(300, u64::MAX).unwrap();
+                assert_eq!((p.packet_ptr, p.release_ns), (packet(id), 300));
+            }
+        }
+        assert_eq!(b.try_pop(310, u64::MAX).unwrap().packet_ptr, packet(3));
+    }
+}
+
+#[test]
+fn failed_storage_reservation_does_not_advance_trace_cursor() {
+    use dpds_core::hng::{OutageAction, TerminalPolicy, TraceProfile, TraceRow};
+    let trace = TraceProfile {
+        outage_action: OutageAction::Drop,
+        terminal: TerminalPolicy::HoldLast,
+        loss_seed: 0,
+        end_ns: 100_000,
+        rows: vec![
+            TraceRow {
+                at_ns: 0,
+                t_ns: 1000,
+                loss: Probability::ZERO,
+                outage: false,
+            },
+            TraceRow {
+                at_ns: 500,
+                t_ns: 10_000,
+                loss: Probability::ZERO,
+                outage: false,
+            },
+        ],
+    };
+    let mut b = HngBuffer::with_trace(
+        HngConfig {
+            q_bytes: 10_000,
+            storage_capacity_packets: 1,
+            ..config()
+        },
+        trace,
+    )
+    .unwrap();
+    assert_eq!(b.push(packet(1), 76, 0), PushResult::Accepted);
+    assert_eq!(b.push(packet(2), 1514, 0), PushResult::StorageDrop);
+    b.pop().unwrap();
+    assert_eq!(b.push(packet(3), 76, 100), PushResult::Accepted);
+    assert_eq!(b.front().unwrap().deadline_ns, 1200);
+}
+
+#[test]
+fn line_selection_ordinal_is_independent_of_other_vlan_traffic() {
+    let c = HngConfig {
+        q_bytes: 100_000,
+        p: "0.5".parse().unwrap(),
+        ..config()
+    };
+    let mut a = HngBuffer::new(c).unwrap();
+    let mut b = HngBuffer::new(c).unwrap();
+    for i in 0..16u64 {
+        assert_eq!(
+            a.push_with_seq(packet(i as usize + 1), 76, 0, i),
+            PushResult::Accepted
+        );
+        assert_eq!(
+            b.push_with_seq(packet(i as usize + 1), 76, 0, i * 10),
+            PushResult::Accepted
+        );
+    }
+    for i in 0..16 {
+        let x = a.pop().unwrap();
+        let y = b.pop().unwrap();
+        assert_eq!((x.late, x.selection_seq), (y.late, y.selection_seq));
+        assert_eq!(x.selection_seq, i);
+    }
+}

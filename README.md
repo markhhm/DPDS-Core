@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+
 # dpds-core
 
 ## HNG fork
@@ -7,6 +9,33 @@ by Etienne Zink and the upstream DPDS project. The original Apache-2.0 license
 and author metadata are retained. The proposed HNG scheduling contract and
 validation plan are in [docs/HNG-DESIGN.md](docs/HNG-DESIGN.md); that document
 does not claim that the design is implemented or hardware-validated.
+
+### Hardware and validation requirements
+
+The Rust scheduling library does not require DPDK, physical NICs or hugepages.
+The host owns DPDK I/O. Functional acceptance uses fake-clock tests and the
+`net_null`, `net_ring`, pcap and `af_packet` virtual devices before physical
+accuracy or throughput qualification.
+
+For the proposed bidirectional 100GbE qualification, reserve two data ports
+with a Gen4 x16 adapter or two independent Gen3 x16 adapters, eight physical
+data-plane cores plus control/observer cores, and at least 64 GiB RAM including
+32 GiB of node-local hugepages. Keep NICs, host cores and packet memory on the
+same NUMA node where possible. These are workload-dependent estimates; the
+inspected host supports at most four lcores, and additional cores do not
+automatically increase throughput. Neither ConnectX-4 nor ConnectX-5 is
+mandatory.
+
+The candidate host stack is Ubuntu Server 24.04 LTS with kernel 6.8 and DPDK
+26.03, subject to qualification of the exact NIC, firmware and driver stack.
+An independent traffic source and calibrated ingress/egress timestamps in one
+clock domain are required for physical acceptance. The targets are median
+absolute delay error <= 0.1 ms and p99 <= 0.5 ms; no physical precision or
+100G throughput has been validated by this design branch. See
+[MACHINE-REQUEST.md](docs/MACHINE-REQUEST.md) for supported NIC candidates,
+memory calculations, software gates, driver constraints and the measurement
+procedure. Supply machine-specific values through private configuration or
+parameters, rather than copying deployment values into source or defaults.
 
 `dpds-core` is the core of **DPDS**, a software **network-link emulator**. It
 models the three effects a real network link imposes on packets — **delay**,

@@ -823,3 +823,44 @@ fn minimum_and_vlan_frame_accounting_use_one_fcs_and_wire_overhead() {
         );
     }
 }
+
+#[test]
+fn terminal_horizon_is_enforced_even_when_every_packet_is_trace_lost() {
+    use dpds_core::hng::{OutageAction, TerminalPolicy, TraceProfile, TraceRow};
+    for (arrival, expected) in [
+        (1899, PushResult::TraceLoss),
+        (1900, PushResult::InvalidInput),
+        (2000, PushResult::InvalidInput),
+    ] {
+        let trace = TraceProfile {
+            end_ns: 1000,
+            terminal_horizon_ns: Some(2000),
+            terminal: TerminalPolicy::HoldLastSample,
+            outage_action: OutageAction::Drop,
+            loss_seed: 0,
+            rows: vec![TraceRow {
+                at_ns: 0,
+                t_ns: 0,
+                loss: Probability::ONE,
+                outage: false,
+            }],
+        };
+        let mut b = HngBuffer::with_trace(
+            HngConfig {
+                q_bytes: 800,
+                ..config()
+            },
+            trace,
+        )
+        .unwrap();
+        assert_eq!(b.push(packet(1), 76, arrival), expected);
+        assert_eq!(
+            b.stats().q_bytes,
+            if expected == PushResult::TraceLoss {
+                80
+            } else {
+                0
+            }
+        );
+    }
+}

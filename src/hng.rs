@@ -329,8 +329,7 @@ impl HngBuffer {
         let mut release_ns = deadline_ns;
         let mut clamp_extra_ns = 0;
         if let Some(trace) = &self.trace {
-            if service_ns >= trace.profile.end_ns && trace.profile.terminal == TerminalPolicy::Error
-            {
+            if !trace.covers(service_ns) {
                 return PushResult::InvalidInput;
             }
             while trace_cursor + 1 < trace.profile.rows.len()

@@ -60,6 +60,9 @@ impl TraceProfile {
         {
             return Err("hold_last_sample needs a finite terminal_horizon_ns after end_ns");
         }
+        if self.terminal == TerminalPolicy::Error && self.terminal_horizon_ns.is_some() {
+            return Err("terminal error policy requires a null terminal_horizon_ns");
+        }
         Ok(())
     }
     pub fn max_delay_ns(&self) -> u64 {
@@ -99,10 +102,14 @@ impl TracePolicy {
         Ok(Self { profile, next_up })
     }
 
+    pub fn covers(&self, ns: u64) -> bool {
+        ns < self.profile.end_ns
+            || (self.profile.terminal == TerminalPolicy::HoldLastSample
+                && self.profile.terminal_horizon_ns.is_some_and(|h| ns < h))
+    }
+
     pub fn index(&self, ns: u64) -> Result<usize, &'static str> {
-        if (ns >= self.profile.end_ns && self.profile.terminal == TerminalPolicy::Error)
-            || self.profile.terminal_horizon_ns.is_some_and(|h| ns >= h)
-        {
+        if !self.covers(ns) {
             return Err("trace coverage exhausted without terminal HOLD");
         }
         Ok(self

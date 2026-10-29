@@ -205,6 +205,30 @@ preflight explicitly does not claim captured-stream integrity or data-path
 gate evaluation. Focused checks passed 66 tests; the full host check passed
 16/16 with no skips.
 
+Host `68a4350` normalizes typed counter snapshots, retaining explicit endpoints,
+clock/generation metadata, descriptors and complete source hashes. Reset or
+regression cannot become a zero drop; unknown required values remain null.
+Observer accounting, queue high-water, software conservation and terminal
+semantics are checked independently. The draft reporter accepts the normalized
+view and preserves detailed INCONCLUSIVE with compatibility INVALID. Focused
+checks passed 54 tests.
+
+The first complete counter check passed 15/16 tests: the existing null smoke
+test sent SIGINT before startup completed. A delayed real-DUT fixture reproduced
+the fixed-sleep race. Host `3feb70e` waits for actual worker readiness and retains
+the delay as a regression; the corrected check passed 16/16. Host `58fafe9`
+then merges M4 `b5bf9b0`, keeping its early signal-handler installation,
+2/3/4/5-lcore and startup-SIGINT coverage, plus readiness before traffic.
+The pinned core is merge `6e29024`, containing M4 `94fb125` and the independent
+replay adapter. The merged full host check passed 25/25 with no skips; core
+policy/trace tools/fmt/clippy/tests also passed. No hardware qualification ran.
+
+The observation contract now contains a clearly marked proposal for a bounded,
+volatile identity/outcome index. It must not persist full packet history or use
+a disk fallback. An unrepresentable/retired identity increments `join_overflow`
+and makes its affected cells INCONCLUSIVE; memory limits and their formula are
+reported explicitly. Implementation and design-branch integration remain open.
+
 Final report migration, complete online before/after joins, online
 offer/terminal and shared-port custody reconciliation, plus actual virtual-PMD
 observation faults remain open. The uncompleted host exporter work is preserved

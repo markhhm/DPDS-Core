@@ -210,9 +210,25 @@ Licensed under the [Apache License, Version 2.0](LICENSE).
 scan (`scripts/check-policy.sh`: SPDX headers and environment-specific values
 such as lab hostnames, personal paths or private IP addresses) and its
 self-test, `cargo fmt --check`, `cargo clippy --locked --all-targets -- -D warnings`,
-and `cargo test --locked`, then fails if any check modified the working tree
+`cargo test --locked`, builds the offline replay executable, and runs the Python
+synthetic/integration tests. It then fails if any check modified the working tree
 (for example a stale `Cargo.lock`). GitHub Actions (`.github/workflows/ci.yml`)
 and the pre-push hook run this same script.
+
+The full check suite requires Python 3.11+ and NumPy 2.x for offline trace tests.
+The Rust engine itself still needs only Rust. Use a virtual environment:
+
+```sh
+python3 -m venv .venv
+.venv/bin/python -m pip install -r scripts/trace-requirements.txt
+PYTHON=.venv/bin/python scripts/check.sh
+```
+
+Set `PYTHON` to the same interpreter when pushing so the hook uses it.
+If NumPy cannot be imported, `check.sh` exits nonzero with installation help;
+it never skips the trace suite into a passing check. Missing measured sources
+skip only the explicitly external-data test, as described in
+[trace replay](docs/TRACE-TOOLS.md#actual-scheduler-replay-and-independent-oracle).
 
 Install the versioned hook after cloning:
 

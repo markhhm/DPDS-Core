@@ -38,7 +38,8 @@ class ConverterTests(unittest.TestCase):
         source = self.tool.read_source(path)
         self.assertEqual(source.sha256, hashlib.sha256(path.read_bytes()).hexdigest())
         self.assertEqual(source.direction, "ul")
-        self.assertEqual(source.missing, 1)
+        self.assertIsNone(source.missing)
+        self.assertEqual(source.missing_internal, 1)
         document, manifest = self.tool.convert(path, 0, 15_000_000, 7, 1, 20_000_000)
         self.assertEqual(document["source_sha256"], source.sha256)
         self.assertEqual(document["schema"], "hng-trace-v1")
@@ -54,6 +55,35 @@ class ConverterTests(unittest.TestCase):
         self.assertEqual(manifest["lateness"]["source"]["n_late"], 5)
         self.assertEqual(manifest["lateness"]["source"]["histogram"], {"1": 1, "4": 1})
         self.assertEqual(manifest["lateness"]["configured"]["histogram"], {"1": 1, "4": 1})
+
+    def test_missing_sequence_counts_use_explicit_bounds_and_preserve_unknowns(self):
+        path = self.source()
+        unknown = self.tool.read_source(path)
+        self.assertIsNone(unknown.missing)
+        self.assertIsNone(unknown.missing_before)
+        self.assertIsNone(unknown.missing_after)
+        bounded = self.tool.read_source(path, expected_first_seq=0, expected_last_seq=18)
+        self.assertEqual((bounded.missing_before, bounded.missing_internal, bounded.missing_after), (1, 1, 2))
+        self.assertEqual(bounded.missing, 4)
+        partial = self.tool.read_source(path, expected_first_seq=1)
+        self.assertEqual(partial.missing_before, 0)
+        self.assertIsNone(partial.missing_after)
+        self.assertIsNone(partial.missing)
+        document, manifest = self.tool.convert(path, 0, 15_000_000, expected_first_seq=0, expected_last_seq=18)
+        self.assertEqual(manifest["source"]["missing"], 4)
+        self.assertEqual(manifest["source"]["missing_before"], 1)
+        self.assertEqual(manifest["source"]["missing_after"], 2)
+        self.assertEqual(json.loads(document["conversion"])["expected_sequence_bounds"], {"first": 0, "last": 18})
+        for bounds in ({"expected_first_seq": True}, {"expected_first_seq": -1},
+                       {"expected_first_seq": 2}, {"expected_last_seq": 15}, {"expected_last_seq": 2**64}):
+            with self.subTest(bounds=bounds), self.assertRaises(ValueError):
+                self.tool.read_source(path, **bounds)
+        output = self.directory / "bounded.json"
+        run = subprocess.run([sys.executable, str(ROOT / "scripts/garcia_trace.py"), str(path), str(output),
+                              "--start-ns", "0", "--duration-ns", "15000000", "--offset-ns", "0",
+                              "--expected-first-seq", "0", "--expected-last-seq", "18"], capture_output=True, text=True)
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertEqual(json.loads(output.with_suffix(".manifest.json").read_text())["source"]["missing"], 4)
 
     def test_unregistered_window_is_explicitly_diagnostic(self):
         document, manifest = self.tool.convert(self.source(), 0, 15_000_000)

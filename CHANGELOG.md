@@ -10,6 +10,10 @@ fork has been released yet.
 
 ### Added
 
+- Explicit expected sequence endpoints, leading/internal/trailing missing counts,
+  and unknown unregistered totals; recorded bounds in conversion recipes.
+- Actionable mandatory NumPy preflight in check.sh and venv setup instructions.
+
 - Independent TheaterQ fixture provenance, exact reference snapshot/hash and
   reproduction parameters, plus worked switch/queue arithmetic.
 

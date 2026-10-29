@@ -60,6 +60,7 @@ python scripts/garcia_trace.py SOURCE.zip OUTPUT.json
     [--seed INTEGER] [--late-threshold-ns INTEGER]
     [--queue-drain-ns INTEGER] [--hold-delta-ns INTEGER]
     [--pool POOL.json --pool-index INTEGER]
+    [--expected-first-seq INTEGER] [--expected-last-seq INTEGER]
 ```
 
 - `SOURCE.zip`: one unencrypted CSV member. Expected header:
@@ -89,13 +90,29 @@ python scripts/garcia_trace.py SOURCE.zip OUTPUT.json
   terminal error. A real replay must declare its actual maximum queue drain. The engine loader
   independently verifies the extension against its line C/Q and frame envelope;
   a caller-supplied zero is not sufficient for a nonempty queue.
+- `--expected-first-seq` / `--expected-last-seq`: independently registered,
+  inclusive first/last sent sequence numbers. Either may be omitted. Bounds must
+  be nonnegative u64 integers and contain all received samples; filenames and
+  observed endpoint rows never establish expected bounds.
 
 The ZIP and uncompressed member are each limited to 128 MiB per run. At least
 two samples are required. Noninteger/negative values, duplicate sequence numbers,
 nonincreasing send timestamps after sequence sorting, unsupported headers, bad
 CRC, encryption and multiple members fail. Source integers must not exceed
 2^53 so the reference float64 conversion is meaningful. Missing sequence numbers
-are counted, never converted to primary-profile packet loss.
+are never converted to primary-profile packet loss.
+
+`read_source(path, expected_first_seq=..., expected_last_seq=...)` exposes
+`missing_internal` (between received samples), `missing_before`, `missing_after`,
+and `missing` (total). Unregistered endpoint counts and any total depending on
+them are unknown: Python None / JSON null, never zero. A registered bound equal
+to the observed endpoint legitimately gives zero on that side. The manifest
+preserves all four counts; `missing_runs` counts internal missing stretches only.
+The recipe records both expected bounds for reproduction. `missing` previously
+reported only internal gaps; callers needing that observed count must now use
+`missing_internal`. Garcia's inspected source/README does not provide expected
+first/last sent sequence numbers or a total sent-packet count, so its unbounded
+conversion cannot claim a complete missing count.
 
 A selected window intersecting a received-sample gap greater than 0.5 s fails.
 This is the registered canonical-pool exclusion rule; it never infers an outage.
@@ -176,7 +193,8 @@ supplying the source for comparison. The sidecar includes:
 
 - `schema=garcia-conversion-manifest-v1`, the parsed `recipe`;
 - `source`: ZIP/member basenames and SHA-256 values, direction, full-source sample
-  and missing-sequence counts, source DOI and CC-BY-4.0 attribution reference;
+  and missing-sequence counts (including unknown endpoint/total counts), source
+  DOI and CC-BY-4.0 attribution reference;
 - `normalized_sha256`: hash of the emitted normalized file;
 - `interval_count`, floor-raised interval count and duration;
 - `lateness`: original/configured run histograms and differences, as defined below.

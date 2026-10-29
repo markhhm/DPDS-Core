@@ -3,6 +3,12 @@
 # The complete check suite. The pre-push hook and CI both run exactly this script.
 set -eu
 cd "$(git rev-parse --show-toplevel)"
+if ! "${PYTHON:-python3}" -c 'import numpy' >/dev/null 2>&1; then
+    echo "NumPy is missing or cannot be imported by ${PYTHON:-python3}." >&2
+    echo "Use a Python 3.11+ venv; run: python -m pip install -r scripts/trace-requirements.txt" >&2
+    echo "Set PYTHON to that environment's interpreter, then rerun scripts/check.sh." >&2
+    exit 1
+fi
 scripts/check-policy.sh
 scripts/check-policy-test.sh
 . scripts/find-cargo.sh

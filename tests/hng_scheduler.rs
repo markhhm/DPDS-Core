@@ -864,3 +864,41 @@ fn terminal_horizon_is_enforced_even_when_every_packet_is_trace_lost() {
         );
     }
 }
+
+#[test]
+fn core_handoff_keeps_pre_outage_head_visible_for_later_tx_arbitration() {
+    use dpds_core::hng::{OutageAction, TerminalPolicy, TraceProfile, TraceRow};
+    let trace = TraceProfile {
+        end_ns: 1000,
+        terminal_horizon_ns: Some(10_000),
+        terminal: TerminalPolicy::HoldLastSample,
+        outage_action: OutageAction::Hold,
+        loss_seed: 0,
+        rows: vec![
+            TraceRow {
+                at_ns: 0,
+                t_ns: 90,
+                loss: Probability::ZERO,
+                outage: false,
+            },
+            TraceRow {
+                at_ns: 200,
+                t_ns: 90,
+                loss: Probability::ZERO,
+                outage: true,
+            },
+            TraceRow {
+                at_ns: 300,
+                t_ns: 90,
+                loss: Probability::ZERO,
+                outage: false,
+            },
+        ],
+    };
+    let mut b = HngBuffer::with_trace(config(), trace).unwrap();
+    assert_eq!(b.push(packet(1), 76, 0), PushResult::Accepted);
+    assert_eq!(b.tx_policy().gate(250), 1);
+    assert_eq!(b.tx_policy().gate(300), 0);
+    // TX may execute after recovery; it must receive the older head too.
+    assert_eq!(b.try_pop(250, 1000).unwrap().release_ns, 190);
+}

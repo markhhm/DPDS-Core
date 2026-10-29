@@ -462,7 +462,6 @@ impl HngBuffer {
         if p.release_ns > now_ns
             || (!self.input_complete
                 && p.release_ns > input_watermark_ns.saturating_add(self.minimum_delay_ns))
-            || self.trace.as_ref().is_some_and(|t| t.gate(now_ns) == 1)
         {
             None
         } else {

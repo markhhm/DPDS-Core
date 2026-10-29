@@ -20,7 +20,8 @@ accuracy or throughput qualification.
 For the proposed bidirectional 100GbE qualification, reserve two data ports
 with a Gen4 x16 adapter or two independent Gen3 x16 adapters, eight physical
 data-plane cores plus control/observer cores, and at least 64 GiB RAM including
-32 GiB of node-local hugepages. Keep NICs, host cores and packet memory on the
+40 GiB of node-local hugepages for cable + LEO in both directions (M4 pool
+calculator: 38.826 GiB; see docs/MACHINE-REQUEST.md section 11). Keep NICs, host cores and packet memory on the
 same NUMA node where possible. These are workload-dependent estimates; the
 inspected host supports at most four lcores; the reservation anticipates a
 future scheduler per direction, subject to performance validation. Neither ConnectX-4 nor ConnectX-5 is

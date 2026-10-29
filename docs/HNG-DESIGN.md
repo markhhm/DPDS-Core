@@ -20,7 +20,8 @@ The controlling snapshot of the private research repository is `78d949f6cf25c9d0
 - The project task description for this design specifies this deliverable.
 - The Step 2 routing-demo design plan, decisions 15:30/15:40,
   19:10 and notes 19:20/19:35/19:55: shared C/Q, G2, fork DPDS, existing
-  cross-NUMA NICs, 32 GiB hugepage reservation, **10G then 100G**, no 40G gate,
+  cross-NUMA NICs, 32 GiB hugepage reservation (the original single-line
+  design point; now 40 GiB for cable + LEO, MACHINE-REQUEST.md section 11), **10G then 100G**, no 40G gate,
   VLAN-separated cable/LEO, trace delay/loss/outages. Trace splicing follows
   05:15 and its 10:00 correction, detailed in section 5a below.
 - The P0 100G emulator review report (2026-10-29), read in full:
@@ -559,7 +560,11 @@ must not be reused for a longer OneWeb trace without recalculation.
 
 For one fixed-policy line bidirectionally, P0's 1500-byte IP, untagged assumption gives
 `pps = 100e9 / (8*1538) = 8.127438 million/s/direction`. The initial 32 GiB
-hugepage request is a budget, not an observed allocation or proof of zero loss.
+hugepage request was sized for this single-line design point. The M4 pool
+calculator gives 19.432 GiB of hugepages for one line per direction and
+38.826 GiB for cable + LEO, so the request is now 40 GiB
+(MACHINE-REQUEST.md section 11). Either figure is a budget, not an observed
+allocation or proof of zero loss.
 
 | P0 sizing case, both directions | Estimate |
 |---|---:|
@@ -599,8 +604,8 @@ if exhausted. There is no finite zero-loss guarantee for arbitrarily long CPU
 stalls or an unbounded failed TX device.
 
 For the all-MTU example, 512 ms yields about 4.161249M packets per direction.
-Small packets/ACKs increase demand sharply; 32 GiB is not a guarantee for any
-packet mix. Startup must reject an undersized declared envelope or downgrade
+Small packets/ACKs increase demand sharply; neither the original 32 GiB nor the
+current 40 GiB request is a guarantee for any packet mix. Startup must reject an undersized declared envelope or downgrade
 the supported profile explicitly. After startup, allocation/storage exhaustion
 is an infrastructure failure, never an intentional Q drop.
 
@@ -851,7 +856,7 @@ before interpreting results; changing them requires changed fixtures/oracle.
 | Testbed operator + research lead | Register Q byte convention, C/Q values, workload/burst envelope and exact G2 matrix/repetitions | Prevents comparing different bottleneck models under one label |
 | Testbed operator | Validate RX observation point, clock mapping/uncertainty and full-flow identity coverage | Scheduler proof cannot establish measured G2; unresolved observer error means INCONCLUSIVE |
 | Implementation + design review | Demonstrate serialized owner throughput, exact fractional arithmetic cost, bounded memory and TX suffix handling | Single owner may bottleneck; more per-flow workers cannot silently replace shared C/Q |
-| Testbed operator | Actual pool stride, hugepages per NUMA node, cross-socket DMA/CPU interference | 32 GiB and theoretical memory bandwidth are estimates, not capacity certification |
+| Testbed operator | Actual pool stride, hugepages per NUMA node, cross-socket DMA/CPU interference | The 40 GiB request (originally 32 GiB for the single-line design point) and theoretical memory bandwidth are estimates, not capacity certification |
 | Testbed operator | Pin a working CX-4/DPDK/rdma-core/firmware combination; generator/observer timestamp-on capacity | Upstream README and P0 version snippets do not prove this combination |
 | Testbed operator + research lead | Register normalized trace direction/OWD conversion, loss reconstruction, outage drop/hold semantics, terminal policy and segment provenance | Missing samples are not automatically outages; faithful per-packet late replay remains deferred |
 | Research lead | Interpretation of realization error when late releases collide at full line rate | Exact scheduled δ remains true, but physical extra delay can exceed δ; report errors, do not redefine deadlines |

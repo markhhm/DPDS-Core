@@ -139,6 +139,14 @@ pub struct Line {
     pub info: LineInfo,
     pub(crate) buffer: HngBuffer,
 }
+
+impl Line {
+    /// Remaining wire service at this line's explicit ledger watermark.
+    pub fn q_drain_ns(&self) -> u64 {
+        self.buffer.q_drain_ns()
+    }
+}
+
 pub struct Engine {
     pub lines: Vec<Line>,
 }

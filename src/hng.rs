@@ -585,6 +585,15 @@ impl HngBuffer {
     pub fn len(&self) -> usize {
         self.ordinary.len() + self.late.len()
     }
+
+    /// Remaining exact wire service, rounded up, at the explicit ledger watermark.
+    /// This diagnostic does not age Q or consult the current clock.
+    pub fn q_drain_ns(&self) -> u64 {
+        let rate = u128::from(self.config.c_bps);
+        self.finish
+            .saturating_sub(u128::from(self.stats.ledger_watermark_ns) * rate)
+            .div_ceil(rate) as u64
+    }
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }

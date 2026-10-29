@@ -113,6 +113,36 @@ fn serialization_preserves_fractional_ns_without_per_packet_rounding_drift() {
 }
 
 #[test]
+fn q_drain_is_exact_at_the_explicit_ledger_watermark_and_read_only() {
+    let mut b = HngBuffer::new(HngConfig {
+        c_bps: 3_000_000_000,
+        q_bytes: 160,
+        ..config()
+    })
+    .unwrap();
+    assert_eq!(b.q_drain_ns(), 0);
+    assert_eq!(b.push(packet(1), 76, 0), PushResult::Accepted);
+    assert_eq!(b.push(packet(2), 76, 0), PushResult::Accepted);
+    // Two 100-byte wire frames finish at exactly 1600/3 ns.
+    assert_eq!(b.q_drain_ns(), 534);
+    assert_eq!(b.push(packet(3), 1518, 100), PushResult::QDrop);
+    assert_eq!(b.q_drain_ns(), 434);
+    let before = b.stats();
+    assert!(b.try_pop(10_000, 0).is_none());
+    assert_eq!(b.q_drain_ns(), 434);
+    assert_eq!(b.stats().ledger_watermark_ns, before.ledger_watermark_ns);
+    assert_eq!(b.stats().q_bytes, before.q_bytes);
+    assert_eq!(b.push(packet(4), 1518, 267), PushResult::QDrop);
+    assert_eq!((b.stats().q_bytes, b.q_drain_ns()), (80, 267));
+    b.end_input();
+    assert!(b.drain_advance(533));
+    assert_eq!(b.q_drain_ns(), 1);
+    assert!(b.drain_advance(534));
+    assert_eq!((b.stats().q_bytes, b.q_drain_ns()), (0, 0));
+    assert!(!b.is_empty());
+}
+
+#[test]
 fn late_deadline_has_exact_delta_and_storage_never_drops_below_capacity() {
     for p in [Probability::ZERO, Probability::ONE] {
         let mut b = HngBuffer::new(HngConfig {

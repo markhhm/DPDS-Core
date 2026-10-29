@@ -33,13 +33,46 @@ fixtures and submodule pin during M0. Raw logs are append-only in own outbox.
 - [x] RED: both missing hook installers fail before implementation.
 - [x] Add minimal installers/hooks; run actual deliberate-failure commits
   locally, verify rejection, discard only these authorized commits, then green.
-- [ ] Commit M0 reports with log paths; push only `hng/m0-hooks` on each fork.
+- [x] Commit M0 reports with log paths; push only `hng/m0-hooks` on each fork.
   Record M0 in own research records branch and lab notebook for lead integration.
 - [ ] Read Stage 1 report/probe contract and current M2 specification. Write
   failing oracle tests, then implement streaming reference and core harness.
-- [ ] Write failing reporter injection/coverage tests, then implement reporter.
+- [x] Write failing reporter injection/coverage tests, then implement reporter.
 - [ ] Compare at least 10^6 events, run all relevant checks, record limits and
   pending observer specification; push `hng/m2-obs` only after hooks pass.
 
 Implementation follows the supplied task directly in this session. integration lead
 owns review/integration; research records main completion remains the lead's gate.
+
+
+## Progress / rulings (2026-10-29)
+
+- M0 complete: core e2d90a2, host450d6e4 pushed with checks; research records
+  observation worker/notes694d6c6 records baseline and reports; lead owns integration.
+- Stage1 de035a6 fetched/read after owner pushed it, pending second review.
+- Independent oracle/core adapter complete: 1,048,576 events/32cases, zero
+  mismatches; core504d77b, host9ca159d. Reporter draft22368d9, Meson10/10,
+  Python29/29. Injection artifacts are in own outbox (m2-obs.md has paths).
+- Ruling: task owner confirmed .2ms is a detection fixture and a separate
+  threshold-crossing fixture is required. Preserve all fixed G2 limits.
+- Stage1 compatibility added: linear quantiles, status precedence, CSV names,
+  INCONCLUSIVE->INVALID/exit2 mapping, exact 100-byte probe payload.
+- Final reviewer restarted after account-switch stray input interrupted its
+  predecessor before findings. Final observer specification is still pending.
+- Full M2 remains open: observer, actual TX attempt/gate evidence, software PMD
+  full observation acceptance and final schema integration.
+
+- Independent reviewer found three Important false PASS paths (unsealed expected
+  output, unsupported configuration accepted, negative OWD not invalidating)
+  and one Minor sent-selection undercount for Q drops. RED regressions preceded
+  fixes; reference/report/probe now pass 33 tests + 14 subtests. Full Meson
+  rerun and review recheck in progress. No scheduling code changed.
+- Ruling from spec owner: trace expected timing uses release_ns for modeled
+  outage hold; split engine arrival from external ingress in final spec. Main
+  sample hash/domain and 1/1024 remain. Per-line gates/complete stream seals/
+  TX attempt schema will follow committed HNG-OBSERVER after builder review.
+
+- Final review fix: strict trace provenance/path/hash and integer epoch/scale
+  boundary tests now pass (including bool/array rejections). Host20433e1 has
+  all corrections; last quick tests34passed22subtests. Installed pre-push runs
+  final Meson suite including million-event comparison before submission.

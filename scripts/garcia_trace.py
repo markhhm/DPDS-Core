@@ -141,7 +141,8 @@ class DelayCurve:
         return values, routes, raised
 
     def intervals(self, start_ns, duration_ns, offset_ns):
-        start, end = start_ns / 1e9, (start_ns + duration_ns) / 1e9
+        start = start_ns / 1e9
+        end = start + duration_ns / 1e9
         boundaries = [start, end, *self.switches]
         for index, (left, right) in enumerate(zip(self.times[:-1], self.times[1:])):
             if right < start or left > end:
@@ -210,9 +211,9 @@ def lateness(source, document, threshold_ns):
     seq, sent = source.seq[selected], source.send_ns[selected]
     rows = document["profile"]["rows"]
     indices = np.searchsorted([row["at_ns"] for row in rows], sent - start, side="right") - 1
-    configured = np.asarray([row["t_ns"] for row in rows], dtype=np.float64)[indices]
+    configured = np.asarray([row["t_ns"] - recipe["offset_ns"] for row in rows], dtype=np.float64)[indices]
     native_late = source.owd_ns[selected] - baseline[selected] > threshold_ns
-    configured_late = configured - recipe["offset_ns"] - baseline[selected] > threshold_ns
+    configured_late = configured - baseline[selected] > threshold_ns
     source_stats = late_runs(seq, sent, native_late, source.median_interval_ns)
     configured_stats = late_runs(seq, sent, configured_late, source.median_interval_ns)
     return {"baseline": "full-source-median15s-first-send-anchor", "threshold_ns": threshold_ns,

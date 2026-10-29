@@ -43,5 +43,7 @@ fork has been released yet.
 
 ### Fixed
 
+- Preserve reference floating addition order at half-microsecond crop boundaries
+  and cancel propagation offsets as integers before late-run classification.
 - Preserve due trace heads for actual-time TX arbitration.
 - Enforce the finite trace horizon before all intentional loss outcomes.

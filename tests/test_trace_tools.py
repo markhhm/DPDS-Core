@@ -90,6 +90,18 @@ class ConverterTests(unittest.TestCase):
         self.assertEqual(document["profile"]["rows"][0]["t_ns"], 20_000_001)
         self.assertEqual(manifest["recipe"]["effective_start_ns"], 0)
 
+    def test_fractional_microsecond_end_matches_reference_float_addition(self):
+        path = self.source("seq_nr,dl_t0,owd_t0_t1\n1,0,20000000\n2,1000000,20000000\n3,2000000,20000000\n")
+        document, _ = self.tool.convert(path, 500, 6000, 0, 1, 20_000_000)
+        # Reference conversion adds start_s and duration_s before rounding the end.
+        self.assertEqual(document["profile"]["end_ns"], 7000)
+
+    def test_large_offset_cancels_exactly_before_late_classification(self):
+        path = self.source("seq_nr,ul_t0,owd_t0_t1\n1,0,20000000\n2,1000000,20000000\n3,2000000,40001000\n4,3000000,20000000\n5,4000000,20000000\n")
+        _, native = self.tool.convert(path, 0, 4_000_000, 0, 1, 20_001_000)
+        _, shifted = self.tool.convert(path, 0, 4_000_000, 2**60, 1, 20_001_000)
+        self.assertEqual(native["lateness"], shifted["lateness"])
+
     def test_invalid_zip_headers_duplicates_negative_and_coverage_are_rejected(self):
         for text in (
             "a,b,c\n1,0,2\n2,1,2\n",

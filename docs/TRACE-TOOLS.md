@@ -108,7 +108,9 @@ The recipe records requested and effective rounded start/end, seed, quantums,
 offset application, implementation SHA-256 and Python/NumPy versions. Original
 sample ns remain integers for diagnostics. The output's original epoch is zero;
 `at_ns` is relative to the rounded window origin. A sub-microsecond window that
-vanishes after rounding fails.
+vanishes after rounding fails. As in the reference, the floating end is computed
+by adding separately converted start and duration; addition order matters at
+half-microsecond ties.
 
 ## Output and provenance
 
@@ -176,6 +178,8 @@ report, rather than replacing the correlated trace with independent markings:
   the selected rounded window. Compare against the **same** source baseline
   plus the declared offset. This isolates conversion changes and avoids fitting
   a new baseline to an incomplete crop. It models configured delays only.
+  Remove the integer offset before float conversion so large offsets cannot
+  change a threshold classification through floating-point cancellation.
 - Consecutive late samples join a run only if sequence numbers differ by one
   and the send gap is no greater than three times the full-source median interval.
   Crops and files never join. Missing replies cannot lengthen a late run.

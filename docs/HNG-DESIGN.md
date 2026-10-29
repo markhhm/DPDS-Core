@@ -800,8 +800,12 @@ The independent finite-Q/order oracle requires **every ordered ingress event**,
 not only timing samples. Supply `(run, ingress_port, line, ingress_seq,
 selection_seq, external_packet_identity, arrival_ns, packet_length/length_flags)`
 before Q/loss admission, plus input-frontier/end markers and the registered
-trace/configuration. Either persist the complete event stream or feed an
-independent streaming reference every event. The reference computes its own
+trace/configuration. The default feeds an independent streaming reference
+every event and persists only online statistics, histograms, mismatch records
+and full records of the 1/1024 main sample (about 7 GB per bidirectional 100G
+ten-minute cell, *estimate*); persisting the complete event stream (about
+3.6 TB per such cell) is a debug mode capped at 2 s windows
+([HNG-OBSERVER.md](HNG-OBSERVER.md) section 10). The reference computes its own
 Q decisions, service times, selection and deadlines; production-computed
 deadlines/outcomes are comparison outputs, never its sole input. Reconcile
 expected survivors and intentional losses with full receiver identities,

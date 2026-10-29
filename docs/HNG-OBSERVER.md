@@ -26,7 +26,7 @@ Use an exact Python `Fraction` model for correctness and offline analysis. For 1
 
 ### Chosen approach and alternatives
 
-The chosen boundary is a versioned event protocol shared by independent capture, reference and report tools. A production-deadline-only checker cannot detect a shared scheduling bug. Timing-only packet samples cannot reconstruct finite Q or prove full-flow order. Full pcap payload retention is optional and expensive; full ingress/receiver **identities and model inputs** are mandatory. These choices preserve the existing draft rather than adding a second model API.
+The chosen boundary is a versioned event protocol shared by independent capture, reference and report tools. A production-deadline-only checker cannot detect a shared scheduling bug. Timing-only packet samples cannot reconstruct finite Q or prove full-flow order. Full pcap payload retention is optional and expensive; full ingress/receiver **identities and model inputs** are mandatory **inputs to the independent oracle**. By default the oracle consumes them as streams and does not persist them: it keeps online statistics, histograms and full records only for the 1/1024 main sample (section 10.1). Full per-packet persistence is a capped debug mode. These choices preserve the existing draft rather than adding a second model API.
 
 ## 2. Timestamp architecture and calibration
 
@@ -99,21 +99,26 @@ Required bundle:
 |---|---|
 | `manifest.json` | `hng-g2-manifest-v1`; registration, immutable configuration and stream inventory below |
 | `engine.json`, normalized trace files | Existing `hng-v1` / `hng-trace-v1`; exact bytes hashed, independent parser |
-| `ingress.jsonl` | Complete pre-Q host input and frontier/end events; may be partitioned by port |
-| `receiver.jsonl` | Full egress identities/order and sampled timing; external before-point identities in a separate stream when using taps |
-| `host.jsonl` | Terminal non-TX outcomes, arbiter/TX attempts, optional production model diagnostics |
+| `ingress.jsonl` | Complete pre-Q host input and frontier/end events; may be partitioned by port. Default retention: streamed to the oracle; persisted only for main-sample identities and debug windows |
+| `receiver.jsonl` | Full egress identities/order and sampled timing; external before-point identities in a separate stream when using taps. Default retention as for `ingress.jsonl` |
+| `host.jsonl` | Terminal non-TX outcomes, arbiter/TX attempts, optional production model diagnostics. Default retention as for `ingress.jsonl`; terminal records of anomalies are kept as mismatch records |
+| `online.json` | Default retention mode only: streaming-oracle output per required cell (exact counts, histograms, mismatch records, stream digests), section 10.1 |
 | `counters.jsonl` | Start/end and periodic typed layer snapshots, including observer health |
 | `expected.jsonl` | Independent reference decisions plus required summary; optional persistence when streamed |
 | `calibration.json` | Required for physical scope; explicit fake-clock record for software scope |
 | `report.json`, `results.csv`, `summary.txt` | Verdicts, complete reasons, metrics and hashes |
 
+A "stream" in this table is a logical record sequence. In the default `retention.mode="stream"` the high-volume streams are pipes into the oracle, and the persisted files contain the header, the retained records (main sample, debug window, mismatches) and the seal; the seal still covers every record that was produced (section 3.2). In `retention.mode="full"` every record is persisted, as for software fixtures.
+
 All paths are supplied by arguments or relative to an operator-supplied manifest. Public examples contain synthetic identities and relative paths only. Preserve Apache-2.0/upstream attribution; add SPDX to new source and documentation. JSON fixtures use an adjacent SPDX-annotated README or license manifest, not invalid JSON comments.
 
 ### 3.1 Manifest fields
 
-Required keys: `schema`, `run`, `condition_id`, `scope` (`software-only` or `physical`), `producer_versions` (host/core/oracle/reporter/capture SHAs and dependency versions), `stage1_source_commit`, `stage1_source_review`, `config` (`path`, `sha256`), `traces` (path/hash/provenance), `ports` (logical mapping, link bps, RX/TX queue layout), `lines` (name, port/VLAN mapping, app labels), `timing_mode` (`calibration` or `stress`), `sampling`, `clocks`, `windows`, `required_cells`, `streams`, `capacity`, `identity_profile`, `offloads` and `calibration_path`.
+Required keys: `schema`, `run`, `condition_id`, `scope` (`software-only` or `physical`), `producer_versions` (host/core/oracle/reporter/capture SHAs and dependency versions), `stage1_source_commit`, `stage1_source_review`, `config` (`path`, `sha256`), `traces` (path/hash/provenance), `ports` (logical mapping, link bps, RX/TX queue layout), `lines` (name, port/VLAN mapping, app labels), `timing_mode` (`calibration` or `stress`), `sampling`, `clocks`, `windows`, `required_cells`, `streams`, `capacity`, `identity_profile`, `offloads`, `calibration_path` and `retention`.
 
 `windows` lists `{phase,start_ns,end_ns,clock_id}` with phases `fill`, `steady`, `transition`, `drain`; intervals are half-open. Assign timing samples by **ingress** time, then retain their late outputs through drain. Report transition/drain separately without deleting their failures or loss. `required_cells` enumerates `(condition_id,repeat,direction,line,phase)` before data collection; a declared idle diagnostic cell is explicitly nonqualifying, not silently omitted. Each required cell also registers its sampling mask, planned delivered survivors and, where needed, a pooled repeat set (section 7.2); `validate` rejects a registration whose planned main sample cannot reach the minimum, before data collection. V1 qualification supports the current two-port direction mapping: each egress has exactly one opposite ingress source (or the declared one-port software loop). Reject a many-ingress-to-one-egress topology until it has a versioned total-order key; two separate port ordinals cannot be tied by sequence alone.
+
+`retention` is `{mode, debug_windows, mismatch_cap}`: `mode` is `stream` (default for physical scope) or `full` (software fixtures, or physical runs short enough for the debug cap); `debug_windows` lists at most one `{phase,start_ns,end_ns}` per required cell, each at most 2 s of ingress time (section 10.2), and is empty by default; `mismatch_cap` is the registered maximum of retained anomaly records per run (proposal 10^6). `validate` rejects a debug window longer than the cap, a second window in one cell, or `mode=full` on a physical cell longer than the cap.
 
 `capacity` records byte/packet/rate bounds, observer ring sizes, maximum join lag, time/space limits, raw-record widths and processing/storage qualification. `sampling` is specified in section 7. `clocks` identifies E/O domains and timestamp-point conventions. `offloads` records FCS/VLAN stripping, coalescing, TSO/GSO/GRO/LRO, CQE compression and timestamp modes; reject undeclared changes. Hardware names/PCI addresses/credentials live only in a private deployment manifest, referenced by digest if needed.
 
@@ -134,6 +139,8 @@ Every subsequent record has `kind`, `run`, `stream_id`, `seq`; `seq` is contiguo
 `record_count` excludes header/seal. The digest covers canonical bytes of header and every intervening record, each followed by LF. Canonical encoding uses sorted keys, compact separators, ASCII escaping, exact integers and no NaN (`json.dumps(...,sort_keys=True,separators=(",",":"),ensure_ascii=True,allow_nan=False)`). Example digest placeholders must be replaced by calculated hashes in executable fixtures. Also retain file SHA-256 over actual bytes; distinguish these two hashes.
 
 A producer increments `seq` before attempting export, so overflow creates detectable gaps. It increments an independent loss counter even if it cannot emit a gap event. A successfully written `gap` record contains `{first_missing_seq,last_missing_seq,reason}` but **never repairs completeness**. The seal is emitted only after the producer stops and all export queues drain; `complete=false` on abort. Hashes cover markers as well as packets, unlike the draft packet-only digest. Require both stream seals and per-port input end markers. Truncation, missing seals, gap or hash mismatch prevents qualification.
+
+In stream mode the producer computes `records_sha256` over all produced records and the oracle recomputes it over the records it consumed; both digests are retained and must match. The persisted file then holds a subset, so its file SHA-256 identifies the retained bytes only. A third party can verify the retained subset and compare the two stream digests, but cannot recompute the stream digest without a full-mode or debug-window copy.
 
 ## 4. Events and identity
 
@@ -255,6 +262,8 @@ Without complete observer coverage, an absent survivor is not this anomaly: the 
 
 For long runs, the default implementation path is bounded streaming joins partitioned by input direction/line, plus retained mismatch records and digests. Retain unresolved identities until the registered residence/drain/observer-lag bound expires; eviction must create an explicit unresolved record and invalidate the run, never count a pass. The bound includes trace hold and host queues. The current draft O(N) in-memory reporter is acceptable only for bounded software fixtures. Offline external sorting/joining is an alternative if disk capacity and exact stable ordering are preserved. Hash digests supplement counts and joins; they do not replace per-identity comparison.
 
+**Classification without full logs.** The streaming oracle receives every ingress, receiver and host record and performs all checks of this section online, so every anomaly class above is still decided on complete evidence. For each anomaly it retains one mismatch record (the identity, its ingress/receive records, terminal record, reference outcome and class) up to `retention.mismatch_cap`; counts per class stay exact beyond the cap, and reaching the cap gives INCONCLUSIVE (`mismatch_cap_exhausted`) because the retained evidence no longer covers every anomaly. A cell with zero anomalies retains no mismatch records. What is lost outside debug windows: per-packet forensics of non-anomalous unsampled packets (for example, the exact interleaving around a later-found bug), re-running a corrected reference version on the same data (a rerun of the cell is needed), and independent recomputation of stream digests by a third party.
+
 After input end, wait for model ledger, propagation storage, TX pending, NIC completion accounting and observer queues to drain within registered coverage. Seal every stream, then produce results. Forced timeout has an explicit incomplete-drain reason. Snapshots taken before drain cannot establish final conservation.
 
 ## 7. Sampling, uncertainty and confidence intervals
@@ -373,7 +382,7 @@ Illustrative packed layouts, one per record class, derived from the field lists 
 | `attempt.offered` entry | ingress_port 2, ingress_seq 8, identity 12, line 2, gate_ns 8, handoff_queue_id 2, handoff_seq 8 | 42 | 48 |
 | `terminal` (§5.2) | kind 1, seq 8, ingress_port 2, ingress_seq 8, identity 12, line 2, at_ns 8, reason 1 | 42 | 48 |
 
-Per-input volume for 600 s at zero intended loss, with v1's one opposite ingress port and one handoff queue per egress, mean burst B=32 for both dispatch and attempt, and no TX retries:
+**Full per-packet volume (debug mode only, section 10.2).** These are the bytes that every record class produces; in the default stream mode they flow through the oracle and only the section 10.1 subset is persisted. Per-input volume for 600 s at zero intended loss, with v1's one opposite ingress port and one handoff queue per egress, mean burst B=32 for both dispatch and attempt, and no TX retries:
 
 | Retained record class | Bytes / input packet | Rate | Ten-minute volume |
 |---|---:|---:|---:|
@@ -388,9 +397,26 @@ Per-input volume for 600 s at zero intended loss, with v1's one opposite ingress
 
 Check: `280.359375 B * 16.212711e6 /s = 4.545 GB/s`; `* 600 s = 2.727 TB`. Fusing offer into the ingress record (one host producer, offer fields null on a pre-offer loss) gives `280.36-64-56+80 = 240.36 B`, 3.897 GB/s and 2.338 TB. Intended loss at fraction p replaces about 48p B of after records with 48p B of terminal records, so the total is unchanged to this precision. Each TX retry adds an 80 B header plus 48 B per re-offered entry; at B=1 the per-packet total rises to 412.11 B. The 10%-late extra stratum at 112 B/pair adds `0.1*112*16.212711e6*600 = 108.9 GB`, for **2.836 TB** per cell with it.
 
-The table excludes expected output (streamed), counters, stream headers/seals, indices, repeats and other extra strata. Provision at least **3.6 TB aggregate free space per retained ten-minute cell** (2.836 TB plus 25% for these and for width error, rounded up), and more for JSONL, smaller bursts, retries, persisted reference output or longer runs. Split by actual writer; neither compression nor expected losses are assumed. These widths are not measured; register the measured encoded widths, burst distribution and retry rate before M5, and recompute. TG TX/RX backup may avoid the extra passive-before identity stream but still needs complete generation/input/delivery evidence.
+The table excludes expected output (streamed), counters, stream headers/seals, indices, repeats and other extra strata. If all of it were persisted, a ten-minute cell would need at least **3.6 TB** (2.836 TB plus 25% for these and for width error, rounded up). That is no longer the default. These widths are not measured; register the measured encoded widths, burst distribution and retry rate before M5, and recompute. TG TX/RX backup may avoid the extra passive-before identity stream but still needs complete generation/input/delivery evidence. Streaming reduces disk, not event processing: the oracle still consumes about 4.545 GB/s of records at this reference load.
 
-Streaming reduces disk, not event processing: retain bounded mismatch records, digests, counters and timing samples after full independent checking. A 100 GB workspace is an initial estimate **only** if high-volume strata are reduced online. Main timing alone is small; if all 10%-late extras are saved at 112 B/pair, they add about 108.9 GB/600 s before other data. Register retention caps; cap exhaustion is explicit, not silent sample loss. Extra stratum streaming summaries may use exact sorted spill or a documented bounded quantile representation with conservative error bounds; the first software reporter can keep them in memory for limited fixtures.
+### 10.1 Default: streaming oracle with sampled full records
+
+The oracle computes every gate online and persists only:
+
+1. **Main-sample full records.** For each 1/1024 main-sample identity (section 7.1), every record that carries it: ingress 64 B, offer 56 B, after 48 B, external before 48 B, its dispatch header and entry 56 + 12 B, its attempt header and offered entry 80 + 48 B, and two timing rows 2 × 56 B. Worst case, each sampled packet is in its own dispatch and attempt batch: `64+56+48+48+68+128+112 = 524 B` per sampled packet, or `524/1024 = 0.512 B` per input packet.
+2. **Histograms.** Per required cell, line and stratum (main, ordinary-main, late-main, `late_extra`, `app_extra:<label>`): signed and absolute OWD error at 1 µs bins from -10 ms to +10 ms with exact underflow/overflow counts and exact minimum/maximum; reordering high-water and drop counts per layer. 2 × 20,001 bins × 8 B is about 0.32 MB per histogram set (*estimate*); negligible below.
+3. **Mismatch records**, capped by `retention.mismatch_cap` (proposal 10^6 per run). At the full per-packet width this is at most `10^6 × 280.36 B = 0.280 GB`.
+4. Counters, stream headers, seals and both stream digests (section 3.2).
+
+The timing gates are computed from the retained main-sample pairs exactly as in section 7.2: n, the quantile point estimates and the L/U ranks need only the main sample, so `n_min=368`, the planning target N_plan(10)=440,433 and the 376,832 expected count are unchanged. Histograms serve the extra strata and diagnostics; an extra-stratum quantile from a histogram uses the conservative bin edge (bin upper edge for an upper bound, lower edge for a lower bound). Order, duplicate, storage and missing-delivery checks use the complete streams online (section 6).
+
+**Per-cell storage (estimate)**, bidirectional 100G, 1,542 line bytes, 600 s: main samples `16.212711e6/1024 × 600 = 9.4996e6`; full records `9.4996e6 × 524 B = 4.978 GB`; plus the 0.280 GB mismatch cap gives 5.258 GB; with 25% for headers, histograms and width error, `5.258 × 1.25 = 6.573 GB`. Provision **7 GB per ten-minute cell**, against 3.6 TB with full recording. One 100G direction halves the sample term: `(2.489 + 0.280) × 1.25 = 3.46 GB`, provision 4 GB. A smaller registered m (oversampling) multiplies the sample term by `2^(10-m)`; recompute it per cell.
+
+### 10.2 Debug mode: full per-packet recording
+
+Full recording (`retention.mode=full`, or a `debug_windows` entry) is off by default and must be switched on explicitly in the manifest before data collection. Each window covers at most **2 s of ingress time** in one cell; outputs of packets that entered in the window are retained through drain. 2 s is about four times the 512 ms residence used below (142+320+50 ms), so most packets of a window complete inside it. Cap arithmetic at the reference load: `4.545 GB/s × 2 s = 9.09 GB`; with the 10%-late stratum `2.836 TB / 600 s × 2 s = 9.45 GB`; with 25% margin `9.45 × 1.25 = 11.8 GB`. Provision **12 GB per debug window**, at most one window per cell. The writer must sustain about 4.7 GB/s for the window, or buffer it in RAM; an observer drop during the window gives INCONCLUSIVE for the cell, exactly as outside it. A debug window does not change any gate and is reported in `report.json`. Software fixtures may use `mode=full` without the cap.
+
+Retain unresolved identities in the bounded joins until the registered residence/drain/observer-lag bound expires (section 6). Register the retention caps; cap exhaustion is explicit, not silent sample loss. Extra stratum streaming summaries use the histograms above or an exact sorted spill; the first software reporter can keep them in memory for limited fixtures.
 
 A 64-byte ingress ring holding 100 ms of aggregate traffic already needs about 103.8 MB. At 512 ms residence, ~8.301 million unresolved identities require at least 531.3 MB at an illustrative 64 B each, before hash-table/Python overhead. Calculate per-line/window burst bounds, not only averages. The observer receives four physical monitor streams (up to 400G aggregate RX); both its PCIe and timestamp-on receive path must be qualified. Failure to sustain this evidence pipeline means lower `R_valid` or INCONCLUSIVE at 100G, not permission to sample away full-input evidence.
 
@@ -426,6 +452,8 @@ Required acceptance fixtures:
 | Missing seal/end, duplicate key/identity, bad hash, backward frontier | INVALID with stable reasons; marker corruption is detected even if packet digest matches |
 | Statistics | Stage 1 point quantiles match; exact small-n binomial bounds, ties, unbounded p99, uncertainty-straddling threshold; separate extra strata do not bias main |
 | Aggregation | Invalidity wins inside row; a different valid failing row gives overall FAIL; missing/duplicate required row cannot PASS; software PASS never qualifies G2 |
+| Stream versus full retention | The same fixtures run in `stream` and `full` mode give identical `report.json` verdicts, gates, counts and main-sample statistics; stream-mode persisted records are exactly the main-sample, mismatch and debug-window subsets; producer and oracle stream digests match |
+| Retention limits | A debug window > 2 s, two windows in one cell, or physical `mode=full` beyond the cap -> `validate` rejects; mismatch count above `mismatch_cap` -> INCONCLUSIVE `mismatch_cap_exhausted` with exact per-class counts |
 | Capacity/observer fault | Slow consumer cannot stall DUT invisibly; export gap latches invalidity; all buffers bounded and accounted |
 
 The roadmap fault (c) is "part of the packets receive an extra 0.2 ms; the reporter detects it". From a zero-error baseline, +0.2 ms never exceeds the 0.5 ms p99 threshold, whatever the affected fraction. It exceeds the 0.1 ms median threshold once more than half of the main samples are affected, so the main (c) fixture uses 60% and must FAIL. c1 keeps the few-packet case and proves detection through the asserted fields, not through a verdict. Do not lower either threshold to manufacture a failure.

@@ -10,6 +10,9 @@ fork has been released yet.
 
 ### Added
 
+- Conversion recipe phase and canonical pool identity, with paired-source hash,
+  phase, margin, gap and quantization checks; explicit diagnostic eligibility.
+
 - Startup validation of terminal HOLD against actual line C/Q wire-drain bounds,
   including per-frame wire overhead and integer-ceiling boundaries.
 

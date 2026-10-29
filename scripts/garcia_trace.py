@@ -27,6 +27,17 @@ def corridor_offset(corridor):
     return POP_DELAY_NS[corridor] - 11_000_000 + 4_000_000
 
 
+def detect_phase(source):
+    delays = source.owd_ns / 1e6
+    spikes = delays > np.median(delays) + 15.0
+    if int(np.count_nonzero(spikes)) < 21:
+        return None
+    histogram, edges = np.histogram((source.send_ns[spikes] / 1e9) % 15.0,
+                                   bins=300, range=(0, 15.0))
+    scores = histogram + np.roll(histogram, -1) + np.roll(histogram, 1)
+    return round(float(edges[int(np.argmax(scores))]) * 1e9)
+
+
 def window_has_gap(source, start_ns, duration_ns):
     gaps = np.flatnonzero(np.diff(source.send_ns) > 500_000_000)
     return any(source.send_ns[i] < start_ns + duration_ns and source.send_ns[i + 1] > start_ns
@@ -237,7 +248,7 @@ def lateness(source, document, threshold_ns):
 
 
 def convert(path, start_ns, duration_ns, offset_ns=0, seed=1, late_threshold_ns=20_000_000, *,
-            corridor=None, queue_drain_ns=None, delta_ns=0):
+            corridor=None, queue_drain_ns=None, delta_ns=0, pool_path=None, pool_index=None):
     source = read_source(path)
     if any(type(value) is not int for value in (start_ns, duration_ns, offset_ns, seed, late_threshold_ns)):
         raise ValueError("conversion parameters must be integers")
@@ -260,8 +271,17 @@ def convert(path, start_ns, duration_ns, offset_ns=0, seed=1, late_threshold_ns=
         raise ValueError("invalid coverage, seed or late threshold")
     if window_has_gap(source, start_ns, duration_ns):
         raise ValueError("selected window spans a measurement gap excluded from the canonical pool")
+    phase = detect_phase(source) if source.direction == "dl" else None
+    pool_item = None
+    if pool_path is not None or pool_index is not None:
+        if pool_path is None or pool_index is None:
+            raise ValueError("canonical conversion needs both pool manifest and index")
+        from garcia_pool import validate_selection
+        phase, pool_item = validate_selection(source, path, start_ns, duration_ns, pool_path, pool_index)
     curve = DelayCurve(source, seed)
     rows, begin, finish, stats = curve.intervals(start_ns, duration_ns, offset_ns)
+    if pool_item and (begin != start_ns or finish != start_ns + duration_ns):
+        raise ValueError("canonical window changes after boundary quantization; use a registered microsecond-aligned pool")
     if any(row["t_ns"] + finish - begin > U64_MAX for row in rows):
         raise ValueError("delay plus end overflows engine timestamps")
     drain_budget, horizon = None, None
@@ -278,6 +298,8 @@ def convert(path, start_ns, duration_ns, offset_ns=0, seed=1, late_threshold_ns=
               "start_ns": start_ns, "duration_ns": duration_ns, "effective_start_ns": begin,
               "effective_end_ns": finish, "offset_ns": offset_ns,
               "propagation": propagation,
+              "phase_ns": phase, "pool_item": pool_item,
+              "eligibility": "canonical" if pool_item else "diagnostic",
               "drain_budget": drain_budget,
               "offset_application": "after native 1000 ns latency quantization", "seed": seed,
               "rng": "numpy-PCG64-full-source-pairs", "step_ms": 1, "trend_window_ns": 5_000_000,
@@ -322,6 +344,8 @@ def main():
     parser.add_argument("--late-threshold-ns", type=int, default=20_000_000)
     parser.add_argument("--queue-drain-ns", type=int, help="register finite terminal HOLD with this Q drain budget")
     parser.add_argument("--hold-delta-ns", type=int, default=0, help="additional drain allowance; does not add late packets")
+    parser.add_argument("--pool", type=Path, help="registered canonical pool manifest")
+    parser.add_argument("--pool-index", type=int, help="zero-based candidate index")
     args = parser.parse_args()
     sidecar = args.output.with_suffix(".manifest.json")
     try:
@@ -329,7 +353,8 @@ def main():
             raise ValueError("output or manifest already exists")
         document, manifest = convert(args.source, args.start_ns, args.duration_ns, args.offset_ns,
                                      args.seed, args.late_threshold_ns, corridor=args.corridor,
-                                     queue_drain_ns=args.queue_drain_ns, delta_ns=args.hold_delta_ns)
+                                     queue_drain_ns=args.queue_drain_ns, delta_ns=args.hold_delta_ns,
+                                     pool_path=args.pool, pool_index=args.pool_index)
         write_json(args.output, document)
         manifest["normalized_sha256"] = hashlib.sha256(args.output.read_bytes()).hexdigest()
         write_json(sidecar, manifest)

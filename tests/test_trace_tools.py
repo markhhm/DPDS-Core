@@ -55,6 +55,14 @@ class ConverterTests(unittest.TestCase):
         self.assertEqual(manifest["lateness"]["source"]["histogram"], {"1": 1, "4": 1})
         self.assertEqual(manifest["lateness"]["configured"]["histogram"], {"1": 1, "4": 1})
 
+    def test_unregistered_window_is_explicitly_diagnostic(self):
+        document, manifest = self.tool.convert(self.source(), 0, 15_000_000)
+        recipe = json.loads(document["conversion"])
+        self.assertEqual(recipe["eligibility"], "diagnostic")
+        self.assertIsNone(recipe["phase_ns"])
+        self.assertIsNone(recipe["pool_item"])
+        self.assertEqual(recipe, manifest["recipe"])
+
     def test_linear_midpoints_adaptive_rows_and_latency_rounding(self):
         path = self.source("seq_nr,dl_t0,owd_t0_t1\n1,0,20000000\n2,1000000,20200000\n3,2000000,20400000\n")
         document, _ = self.tool.convert(path, 0, 1_000_000, 0, 1, 20_000_000)
@@ -247,6 +255,70 @@ class PoolTests(unittest.TestCase):
             self.assertEqual(set(row["sources"]), {"ul", "dl"})
             self.assertTrue(all(len(s["sha256"]) == 64 for s in row["sources"].values()))
         self.assertNotIn(str(self.directory), json.dumps(result))
+
+    def test_conversion_checks_registered_pool_identity_phase_and_boundaries(self):
+        self.pair("valid")
+        pool = self.pool.build_pool(self.directory, 1_000_000_000)
+        item = pool["candidates"][0]
+        pool_path = self.directory / "pool.json"
+        pool_path.write_text(json.dumps(pool))
+        source = self.directory / item["sources"]["ul"]["filename"]
+        converter = importlib.import_module("garcia_trace")
+        document, manifest = converter.convert(source, item["start_ns"], item["duration_ns"],
+                                                pool_path=pool_path, pool_index=0)
+        recipe = json.loads(document["conversion"])
+        self.assertEqual(recipe["eligibility"], "canonical")
+        self.assertEqual(recipe["phase_ns"], item["phase_ns"])
+        self.assertEqual(recipe["pool_item"], {"manifest_sha256": hashlib.sha256(pool_path.read_bytes()).hexdigest(),
+                                               "index": 0, "candidate": item})
+        self.assertEqual(recipe, manifest["recipe"])
+        for mode in ("phase", "margin", "hash", "start"):
+            altered = copy.deepcopy(pool)
+            candidate = altered["candidates"][0]
+            start = item["start_ns"]
+            if mode == "phase":
+                candidate["phase_ns"] += 1
+            elif mode == "margin":
+                candidate["start_ns"] = start = 0
+            elif mode == "hash":
+                candidate["sources"]["dl"]["sha256"] = "0" * 64
+            else:
+                start += 1000
+            pool_path.write_text(json.dumps(altered))
+            with self.subTest(mode=mode), self.assertRaises(ValueError):
+                converter.convert(source, start, item["duration_ns"], pool_path=pool_path, pool_index=0)
+        pool_path.write_text(json.dumps(pool))
+        output = self.directory / "canonical.json"
+        result = subprocess.run([sys.executable, str(ROOT / "scripts/garcia_trace.py"), str(source),
+                                 str(output), "--start-ns", str(item["start_ns"]), "--duration-ns", str(item["duration_ns"]),
+                                 "--offset-ns", "0", "--pool", str(pool_path), "--pool-index", "0"], capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(json.loads(output.read_text())["conversion"])["eligibility"], "canonical")
+
+    def test_canonical_rejects_missing_phase_gaps_and_rounded_window_changes(self):
+        converter = importlib.import_module("garcia_trace")
+        self.pair("flat", phase=False)
+        self.pair("gapped", gap=True)
+        pool = self.pool.build_pool(self.directory, 1_000_000_000)
+        gap = next(row for row in pool["excluded"] if row["reason"] == "measurement_gap")
+        flat = next(row for row in pool["excluded"] if row["reason"] == "no_phase")
+        forged = [{key: value for key, value in gap.items() if key != "reason"},
+                  {"stamp": "flat", "phase_ns": 0, "start_ns": 15_000_000_000,
+                   "duration_ns": 1_000_000_000, "sources": flat["sources"]}]
+        pool_path = self.directory / "pool.json"
+        for item in forged:
+            pool_path.write_text(json.dumps({"schema": pool["schema"], "candidates": [item]}))
+            path = self.directory / item["sources"]["ul"]["filename"]
+            with self.subTest(stamp=item["stamp"]), self.assertRaises(ValueError):
+                converter.convert(path, item["start_ns"], item["duration_ns"], pool_path=pool_path, pool_index=0)
+        self.pair("valid")
+        pool = self.pool.build_pool(self.directory, 1_000_000_500)
+        index = next(i for i, item in enumerate(pool["candidates"]) if item["stamp"] == "valid")
+        item = pool["candidates"][index]
+        pool_path.write_text(json.dumps(pool))
+        with self.assertRaises(ValueError):
+            converter.convert(self.directory / item["sources"]["ul"]["filename"], item["start_ns"],
+                              item["duration_ns"], pool_path=pool_path, pool_index=index)
 
     def test_gap_window_is_excluded_and_later_natural_window_survives(self):
         self.pair("gapped", gap=True)

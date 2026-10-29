@@ -58,15 +58,16 @@ python scripts/garcia_trace.py SOURCE.zip OUTPUT.json
     (--offset-ns INTEGER | --corridor A|B)
     [--seed INTEGER] [--late-threshold-ns INTEGER]
     [--queue-drain-ns INTEGER] [--hold-delta-ns INTEGER]
+    [--pool POOL.json --pool-index INTEGER]
 ```
 
 - `SOURCE.zip`: one unencrypted CSV member. Expected header:
   `seq_nr,ul_t0,owd_t0_t1` or `seq_nr,dl_t0,owd_t0_t1`. Direction comes from the
   header; both timestamps and OWD are already nanoseconds, not RTT/2.
 - `--start-ns`: source-relative start, not UTC. `--duration-ns`: positive, at
-  most 45 s, wholly inside source coverage. Neither phase detection nor automatic
-  segment/pair selection is provided. Choose paired directions and their common
-  offset through the experiment's registered selection procedure.
+  most 45 s, wholly inside source coverage. With no verified pool selection,
+  conversion is explicitly diagnostic. Use `--pool` and `--pool-index` to verify
+  a registered paired candidate; the converter never chooses a run at random.
 - `--offset-ns`: required signed propagation offset. Zero preserves native OWD.
   It is added **after** native 1,000 ns latency quantization; it is not rounded
   again. Alternatively, `--corridor A` computes `-11 + 4 + 52.6 = +45.6 ms`;
@@ -115,10 +116,26 @@ unpaired and insufficient-coverage inputs have explicit exclusion reasons.
 start/duration/phase and both ZIP/member hashes; `excluded` retains reasons and
 available hashes. No source samples or absolute directory paths are embedded.
 Choose a candidate using the experiment's registered repetition seed, preserve
-the choice in its run manifest, and convert both directions at that same start.
-An empty candidate list is an empty pool, not validation success. Direct
-conversion remains available for synthetic/diagnostic windows and does not by
-itself certify canonical membership or wall-clock phase alignment.
+the choice in its run manifest, and convert both directions at that same start:
+
+```sh
+python scripts/garcia_trace.py source-directory/STAMP__ul.csv.zip normalized.json \
+  --start-ns START --duration-ns DURATION --corridor A \
+  --pool pool.json --pool-index 0 --queue-drain-ns 1000000
+```
+
+Replace START/DURATION with candidate 0's integers. Both unchanged source ZIPs
+must remain together. The converter verifies paired hashes/directions, recomputes
+DL phase, and checks natural-start alignment, source margins and gaps in both
+directions. Quantization must preserve the registered candidate boundaries.
+A malformed or ineligible selection fails, rather than falling back to canonical.
+
+Every recipe records `phase_ns` (null when unavailable), `pool_item` (manifest
+SHA-256, zero-based index and full candidate, or null), and `eligibility`.
+Only a verified selection is `canonical`. Without one, `eligibility=diagnostic`;
+DL phase can be reported, but an UL-only diagnostic has no inferred phase.
+An empty pool is not validation success. Canonical eligibility does not certify
+hardware wall-clock phase alignment.
 
 ## Registered numerical recipe
 

@@ -176,6 +176,7 @@ pub struct HngBuffer {
     next_seq: u64,
     next_selection_seq: u64,
     input_complete: bool,
+    pub(crate) frame_envelope: (u64, u64),
     stats: HngStats,
     trace: Option<TracePolicy>,
     trace_cursor: usize,
@@ -207,6 +208,7 @@ impl HngBuffer {
             next_seq: 0,
             next_selection_seq: 0,
             input_complete: false,
+            frame_envelope: (64, u64::MAX),
             stats: HngStats::default(),
             trace: None,
             trace_cursor: 0,
@@ -283,6 +285,18 @@ impl HngBuffer {
         }
         // mbuf length excludes FCS; Ethernet pads to 60 bytes before FCS.
         let l2_bytes = (u64::from(packet_bytes) + 4).max(64);
+        if l2_bytes < self.frame_envelope.0 || l2_bytes > self.frame_envelope.1 {
+            return PushResult::InvalidInput;
+        }
+        self.release_q(now_ns);
+        self.last_arrival_ns = now_ns;
+        self.stats.admission_watermark_ns = now_ns;
+        self.next_seq = seq + 1;
+        let selection_seq = self.next_selection_seq;
+        self.next_selection_seq += 1;
+        if l2_bytes > self.config.q_bytes || self.stats.q_bytes > self.config.q_bytes - l2_bytes {
+            return PushResult::QDrop;
+        }
         let wire_bytes = l2_bytes + 20;
         let now = u128::from(now_ns) * u128::from(self.config.c_bps);
         let Some(finish) = now
@@ -296,23 +310,18 @@ impl HngBuffer {
         let Ok(service_ns) = u64::try_from(service_ns) else {
             return PushResult::InvalidInput;
         };
-        let selection_seq = self.next_selection_seq;
         let late = self.config.p.sample(self.config.seed, selection_seq);
         let Some(mut deadline_ns) = service_ns
-            .checked_add(self.config.t_ns)
+            .checked_add(if self.trace.is_some() {
+                0
+            } else {
+                self.config.t_ns
+            })
             .and_then(|t| t.checked_add(if late { self.config.delta_ns } else { 0 }))
         else {
             return PushResult::InvalidInput;
         };
 
-        self.release_q(now_ns);
-        self.last_arrival_ns = now_ns;
-        self.stats.admission_watermark_ns = now_ns;
-        self.next_seq = seq + 1;
-        self.next_selection_seq += 1;
-        if l2_bytes > self.config.q_bytes || self.stats.q_bytes > self.config.q_bytes - l2_bytes {
-            return PushResult::QDrop;
-        }
         let mut trace_drop = None;
         let mut trace_cursor = self.trace_cursor;
         let mut release_ns = deadline_ns;
@@ -353,6 +362,9 @@ impl HngBuffer {
             return PushResult::StorageDrop;
         }
 
+        let Some(clamp_total_ns) = self.stats.clamp_extra_ns.checked_add(clamp_extra_ns) else {
+            return PushResult::InvalidInput;
+        };
         self.finish = finish;
         self.trace_cursor = trace_cursor;
         self.service.push_back(Service { finish, l2_bytes });
@@ -385,7 +397,7 @@ impl HngBuffer {
         }
         if clamp_extra_ns > 0 {
             self.stats.clamp_packets += 1;
-            self.stats.clamp_extra_ns += clamp_extra_ns;
+            self.stats.clamp_extra_ns = clamp_total_ns;
             self.stats.clamp_max_ns = self.stats.clamp_max_ns.max(clamp_extra_ns);
         }
         self.stats.accepted += 1;

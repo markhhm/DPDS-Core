@@ -13,7 +13,7 @@ pub enum OutageAction {
 #[serde(rename_all = "snake_case")]
 pub enum TerminalPolicy {
     Error,
-    HoldLast,
+    HoldLastSample,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -24,6 +24,7 @@ pub struct TraceProfile {
     pub outage_action: OutageAction,
     pub terminal: TerminalPolicy,
     pub loss_seed: u64,
+    pub terminal_horizon_ns: Option<u64>,
 }
 
 #[derive(Debug, Copy, Clone, Deserialize)]
@@ -49,10 +50,15 @@ impl TraceProfile {
             return Err("trace needs increasing rows from zero, a finite end and safe delays");
         }
         if self.rows.last().unwrap().outage
-            && (self.terminal == TerminalPolicy::HoldLast
+            && (self.terminal == TerminalPolicy::HoldLastSample
                 || self.outage_action == OutageAction::Hold)
         {
             return Err("outage hold needs a finite up recovery; terminal HOLD must be up");
+        }
+        if self.terminal == TerminalPolicy::HoldLastSample
+            && self.terminal_horizon_ns.is_none_or(|h| h <= self.end_ns)
+        {
+            return Err("hold_last_sample needs a finite terminal_horizon_ns after end_ns");
         }
         Ok(())
     }
@@ -94,7 +100,9 @@ impl TracePolicy {
     }
 
     pub fn index(&self, ns: u64) -> Result<usize, &'static str> {
-        if ns >= self.profile.end_ns && self.profile.terminal == TerminalPolicy::Error {
+        if (ns >= self.profile.end_ns && self.profile.terminal == TerminalPolicy::Error)
+            || self.profile.terminal_horizon_ns.is_some_and(|h| ns >= h)
+        {
             return Err("trace coverage exhausted without terminal HOLD");
         }
         Ok(self

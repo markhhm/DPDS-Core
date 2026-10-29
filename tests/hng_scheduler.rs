@@ -297,8 +297,8 @@ fn exact_decimal_probability_and_selector_have_published_vectors() {
     ] {
         assert!(bad.parse::<Probability>().is_err());
     }
-    assert_eq!(Probability::ZERO.sample(0, 0), false);
-    assert_eq!(Probability::ONE.sample(0, 0), true);
+    assert!(!Probability::ZERO.sample(0, 0));
+    assert!(Probability::ONE.sample(0, 0));
     assert_eq!(dpds_core::hng::selection_word(0, 0), 0xe220a8397b1dcdaf);
     assert_eq!(dpds_core::hng::selection_word(0, 1), 0x6e789e6aa1b965f4);
     assert_eq!(dpds_core::hng::selection_word(0, 2), 0x06c45d188009454f);
@@ -403,6 +403,7 @@ fn trace_delay_steps_up_and_down_remain_fifo() {
     use dpds_core::hng::{TraceProfile, TraceRow};
     for (delays, deadlines) in [([10, 1000], [110, 1200]), ([1000, 10], [1100, 1100])] {
         let trace = TraceProfile {
+            terminal_horizon_ns: None,
             outage_action: dpds_core::hng::OutageAction::Drop,
             terminal: dpds_core::hng::TerminalPolicy::Error,
             loss_seed: 7,
@@ -443,6 +444,7 @@ fn trace_delay_steps_up_and_down_remain_fifo() {
 fn trace_loss_outage_and_end_are_distinct_from_q_or_storage_loss() {
     use dpds_core::hng::{TraceProfile, TraceRow};
     let trace = TraceProfile {
+        terminal_horizon_ns: None,
         outage_action: dpds_core::hng::OutageAction::Drop,
         terminal: dpds_core::hng::TerminalPolicy::Error,
         loss_seed: 7,
@@ -505,6 +507,7 @@ fn malformed_trace_and_unimplemented_packet_late_mode_are_rejected() {
     };
     for trace in [
         TraceProfile {
+            terminal_horizon_ns: None,
             outage_action: dpds_core::hng::OutageAction::Drop,
             terminal: dpds_core::hng::TerminalPolicy::Error,
             loss_seed: 7,
@@ -512,6 +515,7 @@ fn malformed_trace_and_unimplemented_packet_late_mode_are_rejected() {
             rows: vec![],
         },
         TraceProfile {
+            terminal_horizon_ns: None,
             outage_action: dpds_core::hng::OutageAction::Drop,
             terminal: dpds_core::hng::TerminalPolicy::Error,
             loss_seed: 7,
@@ -519,6 +523,7 @@ fn malformed_trace_and_unimplemented_packet_late_mode_are_rejected() {
             rows: vec![TraceRow { at_ns: 1, ..row }],
         },
         TraceProfile {
+            terminal_horizon_ns: None,
             outage_action: dpds_core::hng::OutageAction::Drop,
             terminal: dpds_core::hng::TerminalPolicy::Error,
             loss_seed: 7,
@@ -526,6 +531,7 @@ fn malformed_trace_and_unimplemented_packet_late_mode_are_rejected() {
             rows: vec![row, row],
         },
         TraceProfile {
+            terminal_horizon_ns: None,
             outage_action: dpds_core::hng::OutageAction::Drop,
             terminal: dpds_core::hng::TerminalPolicy::Error,
             loss_seed: 7,
@@ -542,6 +548,7 @@ fn malformed_trace_and_unimplemented_packet_late_mode_are_rejected() {
             ..config()
         },
         TraceProfile {
+            terminal_horizon_ns: None,
             outage_action: dpds_core::hng::OutageAction::Drop,
             terminal: dpds_core::hng::TerminalPolicy::Error,
             loss_seed: 7,
@@ -557,8 +564,9 @@ fn trace_outage_hold_and_drop_apply_at_candidate_deadline() {
     use dpds_core::hng::{OutageAction, TerminalPolicy, TraceProfile, TraceRow};
     for action in [OutageAction::Hold, OutageAction::Drop] {
         let trace = TraceProfile {
+            terminal_horizon_ns: Some(1_000_000),
             outage_action: action,
-            terminal: TerminalPolicy::HoldLast,
+            terminal: TerminalPolicy::HoldLastSample,
             loss_seed: 42,
             end_ns: 1000,
             rows: vec![
@@ -615,8 +623,9 @@ fn trace_outage_hold_and_drop_apply_at_candidate_deadline() {
 fn failed_storage_reservation_does_not_advance_trace_cursor() {
     use dpds_core::hng::{OutageAction, TerminalPolicy, TraceProfile, TraceRow};
     let trace = TraceProfile {
+        terminal_horizon_ns: Some(1_000_000),
         outage_action: OutageAction::Drop,
-        terminal: TerminalPolicy::HoldLast,
+        terminal: TerminalPolicy::HoldLastSample,
         loss_seed: 0,
         end_ns: 100_000,
         rows: vec![
@@ -674,5 +683,143 @@ fn line_selection_ordinal_is_independent_of_other_vlan_traffic() {
         let y = b.pop().unwrap();
         assert_eq!((x.late, x.selection_seq), (y.late, y.selection_seq));
         assert_eq!(x.selection_seq, i);
+    }
+}
+
+#[test]
+fn q_zero_rejects_before_unused_deadline_arithmetic() {
+    let mut b = HngBuffer::new(HngConfig {
+        q_bytes: 0,
+        ..config()
+    })
+    .unwrap();
+    assert_eq!(b.push(packet(1), 76, u64::MAX), PushResult::QDrop);
+}
+
+#[test]
+fn cumulative_trace_clamp_overflow_is_rejected_before_custody_commit() {
+    use dpds_core::hng::{OutageAction, TerminalPolicy, TraceProfile, TraceRow};
+    let trace = TraceProfile {
+        terminal_horizon_ns: None,
+        end_ns: 10_000_000_000_000_000_000,
+        terminal: TerminalPolicy::Error,
+        outage_action: OutageAction::Drop,
+        loss_seed: 0,
+        rows: vec![
+            TraceRow {
+                at_ns: 0,
+                t_ns: 8_000_000_000_000_000_000,
+                loss: Probability::ZERO,
+                outage: false,
+            },
+            TraceRow {
+                at_ns: 1_000_000_000_000,
+                t_ns: 0,
+                loss: Probability::ZERO,
+                outage: false,
+            },
+        ],
+    };
+    let mut b = HngBuffer::with_trace(
+        HngConfig {
+            c_bps: 1,
+            q_bytes: 800,
+            ..config()
+        },
+        trace,
+    )
+    .unwrap();
+    for i in 1..=3 {
+        assert_eq!(b.push(packet(i), 76, 0), PushResult::Accepted);
+    }
+    assert_eq!(b.push(packet(4), 76, 0), PushResult::InvalidInput);
+    assert_eq!(
+        (b.len(), b.stats().accepted, b.stats().q_bytes),
+        (3, 3, 240)
+    );
+}
+
+#[test]
+fn mixed_frame_stream_matches_independent_finite_q_reference() {
+    for seed in 1..=64u64 {
+        let mut random = seed;
+        let q_cap = 64 + seed * 47;
+        let c = HngConfig {
+            q_bytes: q_cap,
+            storage_capacity_packets: 512,
+            storage_capacity_bytes: 1_000_000,
+            ..config()
+        };
+        let mut b = HngBuffer::new(c).unwrap();
+        let mut events: Vec<(u64, u64)> = Vec::new();
+        let mut survivors = Vec::new();
+        let mut now = 0;
+        let mut tail = 0;
+        let mut q_drops = 0;
+        for id in 1..=512usize {
+            random = random
+                .wrapping_mul(2862933555777941757)
+                .wrapping_add(3037000493);
+            now += (random >> 20) % 700;
+            let bytes = 1 + ((random >> 40) % 1518) as u32;
+            let l2 = (u64::from(bytes) + 4).max(64);
+            events.retain(|(finish, _)| *finish > now);
+            let used: u64 = events.iter().map(|(_, q)| q).sum();
+            let expected = if used + l2 > q_cap {
+                q_drops += 1;
+                PushResult::QDrop
+            } else {
+                tail = tail.max(now) + l2 + 20;
+                events.push((tail, l2));
+                survivors.push((id, tail, bytes));
+                PushResult::Accepted
+            };
+            assert_eq!(
+                b.push(packet(id), bytes, now),
+                expected,
+                "seed={seed}, id={id}"
+            );
+            assert_eq!(
+                b.stats().q_bytes,
+                events.iter().map(|(_, q)| q).sum::<u64>()
+            );
+        }
+        for (id, service, bytes) in survivors {
+            let p = b.pop().unwrap();
+            assert_eq!(
+                (p.packet_ptr, p.service_ns, p.deadline_ns, p.packet_bytes),
+                (packet(id), service, service + 1000, bytes)
+            );
+        }
+        assert!(b.pop().is_none());
+        assert_eq!((b.stats().q_drops, b.stats().storage_drops), (q_drops, 0));
+        assert_eq!(b.stats().accepted_bytes, b.stats().dequeued_bytes);
+    }
+}
+
+#[test]
+fn minimum_and_vlan_frame_accounting_use_one_fcs_and_wire_overhead() {
+    for (payload, q, wire) in [
+        (40, 64, 84),
+        (60, 64, 84),
+        (1514, 1518, 1538),
+        (1518, 1522, 1542),
+    ] {
+        let mut b = HngBuffer::new(HngConfig {
+            q_bytes: q,
+            ..config()
+        })
+        .unwrap();
+        assert_eq!(b.push(packet(1), payload, 0), PushResult::Accepted);
+        let p = b.front().unwrap();
+        assert_eq!((p.l2_bytes, p.wire_bytes, p.service_ns), (q, wire, wire));
+        assert_eq!(
+            (
+                b.stats().accepted_bytes,
+                b.stats().accepted_l2_bytes,
+                b.stats().accepted_wire_bytes
+            ),
+            (u64::from(payload), q, wire)
+        );
     }
 }

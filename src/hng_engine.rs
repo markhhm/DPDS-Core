@@ -4,6 +4,9 @@ use serde::Deserialize;
 use std::{
     ffi::{c_char, CStr},
     fs,
+    io::Write,
+    path::Path,
+    process::{Command, Stdio},
 };
 
 #[derive(Deserialize)]
@@ -22,7 +25,86 @@ struct LineConfig {
     vlan_id: u16,
     model: HngConfig,
     envelope: Envelope,
-    trace: Option<TraceProfile>,
+    trace: Option<TraceFile>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TraceFile {
+    path: String,
+    sha256: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TraceDocument {
+    schema: String,
+    source_id: String,
+    direction: String,
+    units: String,
+    conversion: String,
+    source_sha256: String,
+    splice_policy: String,
+    trace_epoch_ns: u64,
+    time_scale: u64,
+    profile: TraceProfile,
+}
+
+fn valid_sha(s: &str) -> bool {
+    s.len() == 64 && s.bytes().all(|c| c.is_ascii_hexdigit())
+}
+
+impl TraceFile {
+    fn load(&self, base: &Path) -> Result<TraceProfile, String> {
+        if !valid_sha(&self.sha256) {
+            return Err("trace sha256 must have 64 hex digits".into());
+        }
+        let bytes = fs::read(base.join(&self.path)).map_err(|e| format!("{}: {e}", self.path))?;
+        // Hash the exact bytes parsed below, avoiding a second-read race.
+        let mut child = Command::new("sha256sum")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .spawn()
+            .map_err(|e| format!("sha256sum is required at startup: {e}"))?;
+        if let Err(e) = child
+            .stdin
+            .take()
+            .ok_or("sha256sum stdin unavailable")?
+            .write_all(&bytes)
+        {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(e.to_string());
+        }
+        let output = child.wait_with_output().map_err(|e| e.to_string())?;
+        let digest = String::from_utf8_lossy(&output.stdout);
+        if !output.status.success()
+            || !digest
+                .split_whitespace()
+                .next()
+                .is_some_and(|d| d.eq_ignore_ascii_case(&self.sha256))
+        {
+            return Err("trace SHA-256 mismatch".into());
+        }
+        let doc: TraceDocument = serde_json::from_slice(&bytes).map_err(|e| e.to_string())?;
+        if doc.schema != "hng-trace-v1"
+            || doc.units != "ns_owd"
+            || doc.trace_epoch_ns != 0
+            || doc.time_scale != 1
+            || doc.source_id.is_empty()
+            || doc.direction.is_empty()
+            || doc.conversion.is_empty()
+            || !valid_sha(&doc.source_sha256)
+            || !matches!(
+                doc.splice_policy.as_str(),
+                "natural_hold" | "paired_splice" | "unspliced_phases"
+            )
+        {
+            return Err("invalid trace provenance, epoch, scale, units or splice policy".into());
+        }
+        doc.profile.validate()?;
+        Ok(doc.profile)
+    }
 }
 
 #[derive(Deserialize)]
@@ -60,6 +142,10 @@ pub struct Engine {
 
 impl Engine {
     pub fn from_json(json: &str) -> Result<Self, String> {
+        Self::from_json_at(json, Path::new("."))
+    }
+
+    pub fn from_json_at(json: &str, base: &Path) -> Result<Self, String> {
         let config: ConfigFile = serde_json::from_str(json).map_err(|e| e.to_string())?;
         if config.schema != "hng-v1" || config.lines.is_empty() || config.lines.len() > 4 {
             return Err("hng-v1 requires 1..4 VLAN line/direction instances".into());
@@ -69,13 +155,14 @@ impl Engine {
         for c in config.lines {
             if c.name.is_empty()
                 || names.contains(&c.name)
+                || c.vlan_id == 0
                 || c.vlan_id > 4094
                 || lines
                     .iter()
                     .any(|l| l.info.ingress_port == c.ingress_port && l.info.vlan_id == c.vlan_id)
             {
                 return Err(
-                    "line names and (ingress_port,VLAN) mappings must be unique; VLAN is 0..4094"
+                    "line names and (ingress_port,VLAN) mappings must be unique; VLAN is 1..4094"
                         .into(),
                 );
             }
@@ -90,9 +177,18 @@ impl Engine {
                         .into(),
                 );
             }
-            let delay = if let Some(t) = &c.trace {
-                t.validate()?;
+            let trace = c.trace.as_ref().map(|t| t.load(base)).transpose()?;
+            let delay = if let Some(t) = &trace {
+                if c.model.t_ns != 0 {
+                    return Err("trace model.t_ns must be zero; delay comes from the trace".into());
+                }
                 t.max_delay_ns()
+                    .checked_add(if t.outage_action == crate::hng::OutageAction::Hold {
+                        t.max_hold_ns()
+                    } else {
+                        0
+                    })
+                    .ok_or("trace delay/hold bound overflow")?
             } else {
                 c.model
                     .t_ns
@@ -128,11 +224,15 @@ impl Engine {
                 threshold: c.model.p.threshold,
                 always_late: c.model.p.always,
             };
-            let buffer = if let Some(trace) = c.trace {
+            let mut buffer = if let Some(trace) = trace {
                 HngBuffer::with_trace(c.model, trace)?
             } else {
                 HngBuffer::new(c.model)?
             };
+            buffer.frame_envelope = (
+                u64::from(c.envelope.min_q_bytes),
+                u64::from(c.envelope.max_q_bytes),
+            );
             names.push(c.name);
             lines.push(Line { info, buffer });
         }
@@ -151,7 +251,7 @@ pub unsafe extern "C" fn hng_engine_load(path: *const c_char) -> *mut Engine {
         }
         let path = CStr::from_ptr(path).to_str().map_err(|e| e.to_string())?;
         let json = fs::read_to_string(path).map_err(|e| e.to_string())?;
-        Engine::from_json(&json)
+        Engine::from_json_at(&json, Path::new(path).parent().unwrap_or(Path::new(".")))
     })();
     match result {
         Ok(e) => Box::into_raw(Box::new(e)),

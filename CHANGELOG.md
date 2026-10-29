@@ -10,6 +10,9 @@ fork has been released yet.
 
 ### Added
 
+- Independent TheaterQ fixture provenance, exact reference snapshot/hash and
+  reproduction parameters, plus worked switch/queue arithmetic.
+
 - Outage-drop regression preventing a discarded packet from creating a phantom
   retained-deadline plateau, verified with a deliberately incorrect floor mutation.
 

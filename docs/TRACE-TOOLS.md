@@ -37,7 +37,8 @@ The converter creates `normalized.json` and `normalized.manifest.json`. The
 comparison exits 0 with `intervals_equal=true`: three intervals, covering 15 ms.
 Both original and configured samples contain five late samples in runs of
 lengths 4 and 1. The missing sequence number splits those runs. All checked-in
-fixtures are synthetic. Existing output files are never overwritten; use a
+fixtures are synthetic. Their independent generation is documented in
+[fixture provenance](../tests/fixtures/README.md). Existing output files are never overwritten; use a
 new output name to rerun. The example ZIP's hash can vary with archive metadata;
 the converter records the actual bytes, not an assumed fixture hash.
 

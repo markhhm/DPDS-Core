@@ -144,3 +144,11 @@ record, so the host can annotate the packet while it is cached.
 `(release_ns, ingress_seq)` ready head among `n` lines of one egress port when
 its release is at most `limit` (the host's bound against unseen input), and
 returns the index of that line, or -1. It replaces a peek per line and a pop.
+
+Line storage is reserved and touched (prefaulted) at load, so no page fault
+lands in the packet path. At the production envelope this is about 0.6 GiB per
+line, done serially before RX. Before reserving, load compares the total with
+`MemAvailable` from `/proc/meminfo` and fails with a configuration error if it
+does not fit. That is a snapshot: memory taken by other processes afterwards
+can still lead to an out-of-memory kill under overcommit. Where
+`/proc/meminfo` is missing, only the allocation itself is checked.

@@ -143,6 +143,27 @@ pub struct Engine {
     pub lines: Vec<Line>,
 }
 
+/// `MemAvailable` from /proc/meminfo, or None where the kernel does not report it.
+fn mem_available_bytes() -> Option<u64> {
+    let info = fs::read_to_string("/proc/meminfo").ok()?;
+    let line = info.lines().find(|l| l.starts_with("MemAvailable:"))?;
+    let kib: u64 = line.split_whitespace().nth(1)?.parse().ok()?;
+    kib.checked_mul(1024)
+}
+
+/// Fail cleanly when the core reservation exceeds available memory. Under
+/// overcommit the allocation itself succeeds and prefaulting would end in an
+/// out-of-memory kill. The check is a snapshot: memory taken by other processes
+/// afterwards can still cause that.
+pub fn check_reservation(bytes: u64, available: Option<u64>) -> Result<(), String> {
+    match available {
+        Some(a) if bytes > a => Err(format!(
+            "core storage needs {bytes} bytes but only {a} bytes of memory are available"
+        )),
+        _ => Ok(()),
+    }
+}
+
 impl Engine {
     pub fn from_json(json: &str) -> Result<Self, String> {
         Self::from_json_at(json, Path::new("."))
@@ -153,6 +174,14 @@ impl Engine {
         if config.schema != "hng-v1" || config.lines.is_empty() || config.lines.len() > 4 {
             return Err("hng-v1 requires 1..4 VLAN line/direction instances".into());
         }
+        // Core storage is prefaulted at construction; refuse up front if it cannot fit.
+        let reserve = config.lines.iter().fold(0u64, |sum, c| {
+            sum.saturating_add(
+                (c.model.storage_capacity_packets as u64)
+                    .saturating_mul(crate::hng::slot_metadata_bytes() as u64),
+            )
+        });
+        check_reservation(reserve, mem_available_bytes())?;
         let mut lines: Vec<Line> = Vec::new();
         let mut names = Vec::new();
         for c in config.lines {

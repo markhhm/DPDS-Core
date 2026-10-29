@@ -432,3 +432,15 @@ fn burst_offer_matches_single_offers() {
 fn lines_do_not_share_cache_lines() {
     assert!(std::mem::align_of::<dpds_core::hng_engine::Line>() >= 128);
 }
+
+/// Startup refuses a core reservation larger than the memory the kernel reports
+/// as available, instead of prefaulting into an out-of-memory kill.
+#[test]
+fn reservation_above_available_memory_is_a_clean_error() {
+    use dpds_core::hng_engine::check_reservation;
+    assert!(check_reservation(1 << 30, Some(2 << 30)).is_ok());
+    let e = check_reservation(3 << 30, Some(2 << 30)).unwrap_err();
+    assert!(e.contains("available"), "{e}");
+    // Without a kernel report (non-Linux), the allocation itself is the only check.
+    assert!(check_reservation(u64::MAX, None).is_ok());
+}

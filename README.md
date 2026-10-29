@@ -37,6 +37,30 @@ memory calculations, software gates, driver constraints and the measurement
 procedure. Supply machine-specific values through private configuration or
 parameters, rather than copying deployment values into source or defaults.
 
+### How to validate delay accuracy
+
+The M2 interface and acceptance procedure are specified in
+[HNG-OBSERVER.md](docs/HNG-OBSERVER.md). The implementation tools belong in the
+DPDS host repository under `tools/g2/`; this branch supplies their contract.
+The oracle and reporter independently compute expectations and do not import
+the scheduling engine.
+
+1. Run synthetic fake-clock and virtual-device tests, including injected order,
+   storage, timing and observer-loss faults. A software PASS is not hardware G2.
+2. Register the configuration, trace, frame envelope, required cells and sampling
+   seed. Capture complete pre-Q inputs and receiver identities, not just probes.
+3. On separately qualified hardware, calibrate same-clock ingress/egress
+   observation to a combined uncertainty of at most 10 microseconds at load.
+4. Drain and seal the event streams, then run the independent reference and
+   reporter. Check each required line/direction against median absolute error
+   <= 0.1 ms and p99 <= 0.5 ms, with zero unintended reorder/storage loss.
+5. Retain hashes, loss counters, uncertainty and confidence intervals with the
+   report. Missing evidence is INVALID/INCONCLUSIVE; it cannot qualify G2.
+
+The specification documents event/payload/report formats, Stage 1 compatibility,
+bounded observer processing and proposed command lines. No physical accuracy
+result is claimed by these instructions.
+
 `dpds-core` is the core of **DPDS**, a software **network-link emulator**. It
 models the three effects a real network link imposes on packets — **delay**,
 **rate limiting**, and **packet loss** — and exposes them through a small **C

@@ -11,5 +11,4 @@ target/
 
 # Editor / tooling local settings
 .vscode/
-.claude/
 .DS_Store

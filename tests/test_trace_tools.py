@@ -65,6 +65,32 @@ class ConverterTests(unittest.TestCase):
             {"at_ns": 750_000, "t_ns": 20_175_000, "loss": "0", "outage": False},
         ])
 
+    def test_registered_corridors_apply_exact_formula_and_record_components(self):
+        self.assertTrue(hasattr(self.tool, "corridor_offset"), "registered corridor conversion is absent")
+        path = self.source()
+        native, _ = self.tool.convert(path, 0, 15_000_000)
+        for corridor, expected, pop in (("A", 45_600_000, 52_600_000), ("B", 106_800_000, 113_800_000)):
+            with self.subTest(corridor=corridor):
+                document, manifest = self.tool.convert(path, 0, 15_000_000, corridor=corridor)
+                self.assertEqual(self.tool.corridor_offset(corridor), expected)
+                self.assertEqual([r["t_ns"] for r in document["profile"]["rows"]],
+                                 [r["t_ns"] + expected for r in native["profile"]["rows"]])
+                recipe = manifest["recipe"]
+                self.assertEqual(recipe["offset_ns"], expected)
+                self.assertEqual(recipe["propagation"], {"corridor": corridor, "baseline_ns": 11_000_000,
+                                                        "geometry_ns": 4_000_000, "pop_delay_ns": pop})
+        with self.assertRaises(ValueError):
+            self.tool.convert(path, 0, 15_000_000, 123, corridor="A")
+
+    def test_cli_accepts_registered_corridor_instead_of_explicit_offset(self):
+        path = self.source()
+        output = self.directory / "corridor.json"
+        command = [sys.executable, str(ROOT / "scripts/garcia_trace.py"), str(path), str(output),
+                   "--start-ns", "0", "--duration-ns", "15000000", "--corridor", "B"]
+        result = subprocess.run(command, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(json.loads(output.read_text())["conversion"])["offset_ns"], 106_800_000)
+
     def test_seed_uses_full_source_state_when_cropping(self):
         path = self.source("seq_nr,ul_t0,owd_t0_t1\n1,0,20000000\n2,1000000,20000000\n3,2000000,25000000\n4,3000000,25000000\n5,4000000,20000000\n")
         full, _ = self.tool.convert(path, 0, 4_000_000, 0, 1, 20_000_000)

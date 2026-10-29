@@ -10,6 +10,8 @@ fork has been released yet.
 
 ### Added
 
+- Explicit corridor A/B propagation conversion with the registered exact
+  +45.6/+106.8 ms offsets and formula components in the recipe.
 - Registered M3 configured-equality semantics and documented cross-engine
   lookup, loss and release-order differences (`docs/TRACE-SEMANTICS.md`).
 - Independent offline Garcia ZIP converter and configured-row comparator,

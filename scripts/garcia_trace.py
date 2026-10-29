@@ -18,6 +18,13 @@ import numpy as np
 
 U64_MAX = 2**64 - 1
 VERSION = "garcia-interval-v1"
+POP_DELAY_NS = {"A": 52_600_000, "B": 113_800_000}
+
+
+def corridor_offset(corridor):
+    if corridor not in POP_DELAY_NS:
+        raise ValueError("corridor must be A or B")
+    return POP_DELAY_NS[corridor] - 11_000_000 + 4_000_000
 
 
 @dataclass
@@ -223,10 +230,17 @@ def lateness(source, document, threshold_ns):
             "histograms_equal": source_stats["histogram"] == configured_stats["histogram"]}
 
 
-def convert(path, start_ns, duration_ns, offset_ns=0, seed=1, late_threshold_ns=20_000_000):
+def convert(path, start_ns, duration_ns, offset_ns=0, seed=1, late_threshold_ns=20_000_000, *, corridor=None):
     source = read_source(path)
     if any(type(value) is not int for value in (start_ns, duration_ns, offset_ns, seed, late_threshold_ns)):
         raise ValueError("conversion parameters must be integers")
+    propagation = None
+    if corridor is not None:
+        if offset_ns != 0:
+            raise ValueError("choose a corridor or an explicit offset, not both")
+        offset_ns = corridor_offset(corridor)
+        propagation = {"corridor": corridor, "baseline_ns": 11_000_000,
+                       "geometry_ns": 4_000_000, "pop_delay_ns": POP_DELAY_NS[corridor]}
     if start_ns < source.send_ns[0] or not 0 < duration_ns <= 45_000_000_000:
         raise ValueError("window must start inside the source and last at most 45 seconds")
     if start_ns + duration_ns > source.send_ns[-1] or seed < 0 or late_threshold_ns < 0:
@@ -242,6 +256,7 @@ def convert(path, start_ns, duration_ns, offset_ns=0, seed=1, late_threshold_ns=
               "numpy_version": np.__version__, "python_version": platform.python_version(),
               "start_ns": start_ns, "duration_ns": duration_ns, "effective_start_ns": begin,
               "effective_end_ns": finish, "offset_ns": offset_ns,
+              "propagation": propagation,
               "offset_application": "after native 1000 ns latency quantization", "seed": seed,
               "rng": "numpy-PCG64-full-source-pairs", "step_ms": 1, "trend_window_ns": 5_000_000,
               "slope_clip_ms_per_ms": 1, "floor_window_ns": 1_000_000_000,
@@ -277,7 +292,9 @@ def main():
     parser.add_argument("output", type=Path)
     parser.add_argument("--start-ns", type=int, required=True)
     parser.add_argument("--duration-ns", type=int, required=True)
-    parser.add_argument("--offset-ns", type=int, required=True)
+    propagation = parser.add_mutually_exclusive_group(required=True)
+    propagation.add_argument("--offset-ns", type=int, default=0)
+    propagation.add_argument("--corridor", choices=sorted(POP_DELAY_NS))
     parser.add_argument("--seed", type=int, default=1)
     parser.add_argument("--late-threshold-ns", type=int, default=20_000_000)
     args = parser.parse_args()
@@ -286,7 +303,7 @@ def main():
         if args.output == sidecar or args.output.exists() or sidecar.exists():
             raise ValueError("output or manifest already exists")
         document, manifest = convert(args.source, args.start_ns, args.duration_ns, args.offset_ns,
-                                     args.seed, args.late_threshold_ns)
+                                     args.seed, args.late_threshold_ns, corridor=args.corridor)
         write_json(args.output, document)
         manifest["normalized_sha256"] = hashlib.sha256(args.output.read_bytes()).hexdigest()
         write_json(sidecar, manifest)

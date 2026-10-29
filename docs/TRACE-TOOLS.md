@@ -54,7 +54,8 @@ SciPy and pytest are not converter or CI dependencies.
 
 ```text
 python scripts/garcia_trace.py SOURCE.zip OUTPUT.json
-    --start-ns INTEGER --duration-ns INTEGER --offset-ns INTEGER
+    --start-ns INTEGER --duration-ns INTEGER
+    (--offset-ns INTEGER | --corridor A|B)
     [--seed INTEGER] [--late-threshold-ns INTEGER]
 ```
 
@@ -67,7 +68,10 @@ python scripts/garcia_trace.py SOURCE.zip OUTPUT.json
   offset through the experiment's registered selection procedure.
 - `--offset-ns`: required signed propagation offset. Zero preserves native OWD.
   It is added **after** native 1,000 ns latency quantization; it is not rounded
-  again. No corridor constant is embedded in code or defaults. Negative resulting
+  again. Alternatively, `--corridor A` computes `-11 + 4 + 52.6 = +45.6 ms`;
+  `--corridor B` computes `-11 + 4 + 113.8 = +106.8 ms`. These registered exact
+  values replace the earlier whole-millisecond approximations. The recipe records
+  all three formula components. The two options are mutually exclusive. Negative resulting
   delay or timestamp overflow is rejected.
 - `--seed`: default 1. The NumPy PCG64 stream draws once for **every source
   sample pair**, before cropping; changing the crop does not restart the RNG.

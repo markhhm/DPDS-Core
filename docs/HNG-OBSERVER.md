@@ -366,8 +366,9 @@ Required acceptance fixtures:
 | Delay UP / DOWN | `(e,t)=(10,100),(20,200),(30,200)` -> deadlines 110,220,230; DOWN t=200,100,100 -> 210,210,210 and original order |
 | One ordinary pair swapped | Complete evidence -> order FAIL; include an unsampled pair so timing-only checking cannot pass |
 | One delay-storage drop | Complete terminal evidence and missing survivor -> storage FAIL; not reclassified as trace/Q loss |
-| 5% receive an extra 0.2 ms from zero-error baseline | Error distribution detects 0.2 ms; median/p99 limits remain unchanged and timing can PASS |
-| Tail threshold fault | Same 5% at 0.6 ms -> p99 FAIL; equivalently +0.2 ms on a registered 0.4 ms baseline tail. Sufficient main samples and narrow CI required |
+| (c) main: 60% receive an extra 0.2 ms | Zero-error baseline; survivors with `ingress_seq % 5 < 3` get +200,000 ns. Median point = 200,000 ns, median CI lower bound = 200,000 ns > 100,000 -> median gate FAIL; p99 gate PASS (all errors <= 200,000 ns); row FAIL with median as the only failing gate |
+| (c1) 5% receive an extra 0.2 ms | Same baseline; `ingress_seq % 20 == 0` gets +200,000 ns. Assert: main count of samples with absolute error > 0 equals the fixture's independently computed k; main max signed error = 200,000 ns; p99 point = 200,000 ns; median point = 0 ns; both timing gates PASS; row PASS |
+| (c3) 5% receive an extra 0.6 ms | Same selector as c1 with +600,000 ns. p99 point and CI lower bound = 600,000 ns > 500,000 -> p99 gate FAIL; median PASS; row FAIL. Variant: +0.2 ms on a registered 0.4 ms baseline tail gives the same p99 FAIL |
 | 1% observer record loss | Sequence/counter/seal gap -> INCONCLUSIVE, CSV INVALID; never count as DUT loss |
 | Trace modeled hold and actual-time delayed hold | Expected uses modeled release for first case; a later CPU-induced outage wait remains error; cable bypass allowed only with complete attempt evidence |
 | Zero/partial/full TX, retries across outage | Accepted prefix/custody correct; illegal drop/gate order fails; missing attempt evidence inconclusive |
@@ -377,7 +378,9 @@ Required acceptance fixtures:
 | Aggregation | Invalidity wins inside row; a different valid failing row gives overall FAIL; missing/duplicate required row cannot PASS; software PASS never qualifies G2 |
 | Capacity/observer fault | Slow consumer cannot stall DUT invisibly; export gap latches invalidity; all buffers bounded and accounted |
 
-The 0.2 ms injection correction is deliberate: from a zero-error baseline it does not exceed a 0.5 ms p99 threshold. Do not lower the threshold to manufacture the requested failure.
+The roadmap fault (c) is "part of the packets receive an extra 0.2 ms; the reporter detects it". From a zero-error baseline, +0.2 ms never exceeds the 0.5 ms p99 threshold, whatever the affected fraction. It exceeds the 0.1 ms median threshold once more than half of the main samples are affected, so the main (c) fixture uses 60% and must FAIL. c1 keeps the few-packet case and proves detection through the asserted fields, not through a verdict. Do not lower either threshold to manufacture a failure.
+
+All three (c) fixtures use the default 1/1024 sampling on one line/direction/phase cell with at least 440,433 delivered survivors, so unsampled packets exist (section 7.2 planning target). The test computes the main sample size n and the affected main count k independently from the sampling hash and fault selector, and asserts these preconditions before it checks the report: n >= 368; for c1, `k > ceil(0.01*(n-1))` (p99 point is a faulted sample) and `U(n,0.5) <= n-k` (median upper bound is a zero sample); for the main (c), `n-k < L(n,0.5)` (median lower bound is a faulted sample); for c3, `n-k < L(n,0.99)` and `U(n,0.5) <= n-k`. L and U are the section 7.2 1-based ranks. Software scope uses u=0.
 
 ## 12. Differences from the inspected draft and handoff
 

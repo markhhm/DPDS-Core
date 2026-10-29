@@ -27,6 +27,12 @@ def corridor_offset(corridor):
     return POP_DELAY_NS[corridor] - 11_000_000 + 4_000_000
 
 
+def window_has_gap(source, start_ns, duration_ns):
+    gaps = np.flatnonzero(np.diff(source.send_ns) > 500_000_000)
+    return any(source.send_ns[i] < start_ns + duration_ns and source.send_ns[i + 1] > start_ns
+               for i in gaps)
+
+
 @dataclass
 class Source:
     seq: np.ndarray
@@ -245,9 +251,8 @@ def convert(path, start_ns, duration_ns, offset_ns=0, seed=1, late_threshold_ns=
         raise ValueError("window must start inside the source and last at most 45 seconds")
     if start_ns + duration_ns > source.send_ns[-1] or seed < 0 or late_threshold_ns < 0:
         raise ValueError("invalid coverage, seed or late threshold")
-    gaps = np.flatnonzero(np.diff(source.send_ns) > 500_000_000)
-    if any(source.send_ns[i] < start_ns + duration_ns and source.send_ns[i + 1] > start_ns for i in gaps):
-        raise ValueError("selected window spans an unregistered measurement gap")
+    if window_has_gap(source, start_ns, duration_ns):
+        raise ValueError("selected window spans a measurement gap excluded from the canonical pool")
     curve = DelayCurve(source, seed)
     rows, begin, finish, stats = curve.intervals(start_ns, duration_ns, offset_ns)
     if any(row["t_ns"] + finish - begin > U64_MAX for row in rows):

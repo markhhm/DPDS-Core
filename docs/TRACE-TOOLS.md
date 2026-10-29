@@ -85,10 +85,30 @@ CRC, encryption and multiple members fail. Source integers must not exceed
 2^53 so the reference float64 conversion is meaningful. Missing sequence numbers
 are counted, never converted to primary-profile packet loss.
 
-A selected window intersecting a received-sample gap greater than 0.5 s fails
-with `unregistered measurement gap`. This is a fail-closed input restriction
-while gap reconstruction is unresolved; it does not register a canonical-pool
-selection rule or infer an outage.
+A selected window intersecting a received-sample gap greater than 0.5 s fails.
+This is the registered canonical-pool exclusion rule; it never infers an outage.
+
+## Canonical paired source pool
+
+```sh
+python scripts/garcia_pool.py source-directory pool.json --duration-ns 11000000000
+```
+
+The directory must contain paired `STAMP__ul.csv.zip` / `STAMP__dl.csv.zip` files.
+The selector derives the common phase from DL with the registered detector,
+excludes runs without a phase, and lists natural starts `phase + 15*k` with
+0.5 s source margins. Windows intersecting a >0.5 s received-sample gap in either
+direction are excluded; exactly 0.5 s is not excluded by that test. Invalid,
+unpaired and insufficient-coverage inputs have explicit exclusion reasons.
+
+`pool.json` uses `schema=garcia-canonical-pool-v1`: `candidates` lists shared
+start/duration/phase and both ZIP/member hashes; `excluded` retains reasons and
+available hashes. No source samples or absolute directory paths are embedded.
+Choose a candidate using the experiment's registered repetition seed, preserve
+the choice in its run manifest, and convert both directions at that same start.
+An empty candidate list is an empty pool, not validation success. Direct
+conversion remains available for synthetic/diagnostic windows and does not by
+itself certify canonical membership or wall-clock phase alignment.
 
 ## Registered numerical recipe
 

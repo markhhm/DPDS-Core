@@ -10,6 +10,8 @@ fork has been released yet.
 
 ### Added
 
+- Canonical paired Garcia pool manifests with DL-derived phase, source hashes,
+  missing-phase exclusions and strict >0.5 s measurement-gap window exclusions.
 - Explicit corridor A/B propagation conversion with the registered exact
   +45.6/+106.8 ms offsets and formula components in the recipe.
 - Registered M3 configured-equality semantics and documented cross-engine

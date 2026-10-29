@@ -154,6 +154,13 @@ class ConverterTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.tool.convert(path, 0, 15_000_000, -100_000_000, 1, 20_000_000)
 
+    def test_gap_cutoff_is_strictly_greater_than_half_a_second(self):
+        self.assertTrue(hasattr(self.tool, "window_has_gap"), "shared gap detector is absent")
+        path = self.source("seq_nr,dl_t0,owd_t0_t1\n1,0,20000000\n2,500000000,20000000\n3,1000000000,20000000\n")
+        self.assertFalse(self.tool.window_has_gap(self.tool.read_source(path), 0, 1_000_000_000))
+        path = self.source("seq_nr,dl_t0,owd_t0_t1\n1,0,20000000\n2,500000001,20000000\n3,1000000000,20000000\n")
+        self.assertTrue(self.tool.window_has_gap(self.tool.read_source(path), 0, 1_000_000_000))
+
     def test_cli_writes_manifest_and_refuses_overwrite(self):
         path = self.source()
         output = self.directory / "normalized.json"
@@ -188,6 +195,50 @@ class ConverterTests(unittest.TestCase):
         _, manifest = self.tool.convert(path, 1_000_000, 2_000_000, 5_000_000, 1, 20_000_000)
         self.assertEqual(manifest["lateness"]["source"]["n_late"], 0)
         self.assertEqual(manifest["lateness"]["source"]["n_samples"], 2)
+
+
+class PoolTests(unittest.TestCase):
+    def setUp(self):
+        self.assertTrue((ROOT / "scripts/garcia_pool.py").exists(), "canonical pool selector is absent")
+        self.pool = importlib.import_module("garcia_pool")
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.directory = Path(self.temp.name)
+
+    def pair(self, stamp, phase=True, gap=False):
+        times = set(range(0, 20_000_000_001, 100_000_000))
+        if phase:
+            times.update(range(1_000_000_000, 1_025_000_000, 1_000_000))
+        if gap:
+            times = {t for t in times if not 1_100_000_000 <= t <= 1_800_000_000}
+        for direction in ("ul", "dl"):
+            text = f"seq_nr,{direction}_t0,owd_t0_t1\n"
+            for index, sent in enumerate(sorted(times), 1):
+                delay = 50_000_000 if phase and 1_000_000_000 <= sent < 1_025_000_000 else 20_000_000
+                text += f"{index},{sent},{delay}\n"
+            with zipfile.ZipFile(self.directory / f"{stamp}__{direction}.csv.zip", "w") as archive:
+                archive.writestr("synthetic.csv", text)
+
+    def test_no_phase_pair_is_excluded_and_valid_pair_is_aligned(self):
+        self.pair("flat", phase=False)
+        self.pair("valid")
+        result = self.pool.build_pool(self.directory, 1_000_000_000)
+        self.assertTrue(any(row["stamp"] == "flat" and row["reason"] == "no_phase" for row in result["excluded"]))
+        self.assertTrue(result["candidates"])
+        for row in result["candidates"]:
+            self.assertEqual(row["stamp"], "valid")
+            self.assertEqual((row["start_ns"] - row["phase_ns"]) % 15_000_000_000, 0)
+            self.assertGreaterEqual(row["start_ns"], 500_000_000)
+            self.assertEqual(set(row["sources"]), {"ul", "dl"})
+            self.assertTrue(all(len(s["sha256"]) == 64 for s in row["sources"].values()))
+        self.assertNotIn(str(self.directory), json.dumps(result))
+
+    def test_gap_window_is_excluded_and_later_natural_window_survives(self):
+        self.pair("gapped", gap=True)
+        result = self.pool.build_pool(self.directory, 1_000_000_000)
+        self.assertTrue(any(row["reason"] == "measurement_gap" for row in result["excluded"]))
+        self.assertTrue(result["candidates"])
+        self.assertTrue(all(row["start_ns"] > 2_000_000_000 for row in result["candidates"]))
 
 
 class ComparatorTests(unittest.TestCase):

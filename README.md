@@ -190,6 +190,30 @@ The HNG engine, C ABI, VLAN-line configuration and normalized trace schema are
 documented in [docs/HNG-API.md](docs/HNG-API.md). Its contract is
 [docs/HNG-DESIGN.md](docs/HNG-DESIGN.md). The upstream APIs above remain available.
 
+## Performance microbenchmarks
+
+`examples/hng_bench.rs` measures the scheduling core without DPDK or a NIC:
+
+```sh
+cargo run --release --locked --example hng_bench -- --mode both --repeat 3
+```
+
+Each sample times one batch (default 1024 packets) of admission plus every
+dequeue that is due, and divides by the batch size. Arrivals are back-to-back
+frames at `--c-bps` (default 100 Gbit/s, 1518-byte mbufs), so in steady state
+each packet is admitted and dequeued once. Batches that end before
+`--warmup-ns` (default t + delta = 462 ms of virtual time) are not sampled.
+Fixed mode uses `--t-ns`, `--delta-ns` and `--p` (defaults 142 ms, 320 ms,
+0.01). Trace mode replays a synthetic sawtooth trace between t and t + delta
+with one row per `--trace-row-ns`. The output reports p50, p99 and max
+ns/packet, the CPU model, the `/proc/cpuinfo` MHz value and the kernel clock
+source. The `arithmetic` lines compare the exact u128 service-time arithmetic
+with a rounded u64 picosecond baseline that the core does not use because it
+drifts.
+
+These numbers describe the machine they ran on. They are not evidence of
+sustained 100 Gbit/s operation.
+
 ## License
 
 Licensed under the [Apache License, Version 2.0](LICENSE).

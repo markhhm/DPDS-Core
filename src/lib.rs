@@ -16,16 +16,17 @@ use crate::limiter::LimiterMode;
 pub mod buffer;
 pub mod delayer;
 pub mod dropper;
+pub mod hng;
 pub mod limiter;
 
 #[repr(C)]
 #[derive(Serialize, Deserialize, Debug, Clone, Copy)]
 pub struct DelayerConfig {
     pub distribution: RVDistribution, // which distribution to use for the delay
-    pub mean_ns: f64,                // in nanoseconds
-    pub std_ns: f64,                 // in nanoseconds
-    pub activate_correlation: bool,  // true if correlation should be applied
-    pub half_life_period_ns: f64,    // configurable memory of the UTEMA
+    pub mean_ns: f64,                 // in nanoseconds
+    pub std_ns: f64,                  // in nanoseconds
+    pub activate_correlation: bool,   // true if correlation should be applied
+    pub half_life_period_ns: f64,     // configurable memory of the UTEMA
 }
 
 #[repr(C)]

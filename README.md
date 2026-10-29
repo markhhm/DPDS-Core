@@ -212,7 +212,8 @@ with a rounded u64 picosecond baseline that the core does not use because it
 drifts.
 
 These numbers describe the machine they ran on. They are not evidence of
-sustained 100 Gbit/s operation.
+sustained 100 Gbit/s operation. Results and rerun commands are in
+[docs/reports/m4-perf.md](docs/reports/m4-perf.md).
 
 ## License
 

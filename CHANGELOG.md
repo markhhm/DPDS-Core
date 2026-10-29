@@ -71,6 +71,7 @@ fork has been released yet.
 ### Removed
 
 - Workstation, session and private path references from design and report documents.
+- Internal planning files under `docs/superpowers/plans/`.
 
 ### Fixed
 

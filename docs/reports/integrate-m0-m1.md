@@ -120,6 +120,6 @@ exists.
   review minor items.
 - Branch protection with a required status check has to be configured on
   GitHub by the repository owner.
-- `docs/superpowers/plans/` (agent workflow plans) remains, with environment
-  references removed. Moving it out of the fork is left to the lead.
+- `docs/superpowers/plans/` (agent workflow plans) remained at the time of this
+  report, with environment references removed; it was later removed from the fork.
 - None of these results are precision, throughput or G2 evidence.

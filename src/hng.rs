@@ -499,6 +499,13 @@ impl HngBuffer {
         (self.ordinary.capacity() + self.late.capacity()) * std::mem::size_of::<HngPacket>()
             + self.service.capacity() * std::mem::size_of::<Service>()
     }
+    /// `try_pop` for a caller that has just seen `ready()` return this head.
+    pub(crate) fn pop_ready(&mut self, now_ns: u64) -> Option<HngPacket> {
+        if self.input_complete {
+            self.release_q(now_ns);
+        }
+        self.pop()
+    }
     pub fn min_delay_ns(&self) -> u64 {
         self.minimum_delay_ns
     }

@@ -740,7 +740,8 @@ pub unsafe extern "C" fn hng_lines_pop_merged(
     }
     match best {
         Some((k, (release, _))) if release <= limit_ns => {
-            match (*lines[k]).buffer.try_pop(now_ns, watermarks[k]) {
+            // ready() just returned this head; release_q cannot change heads.
+            match (*lines[k]).buffer.pop_ready(now_ns) {
                 Some(p) => {
                     *out = p;
                     k as isize

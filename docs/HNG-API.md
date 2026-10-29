@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+
 # HNG software API and configuration
 
 The contract is [HNG-DESIGN.md](HNG-DESIGN.md). This implementation preserves

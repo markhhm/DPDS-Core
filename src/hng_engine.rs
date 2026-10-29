@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! Validated VLAN/line configuration and the generated C boundary.
 use crate::hng::{HngBuffer, HngConfig, HngPacket, HngStats, PushResult, TraceProfile};
 use serde::Deserialize;

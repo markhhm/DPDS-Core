@@ -126,7 +126,7 @@ namespaces and namespace-local network capabilities. An unavailable prerequisite
 produces Meson SKIP with its reason; successful namespace probes do not excuse
 PMD, application or payload failures. No af_packet skip occurred here.
 
-Evidence is in the assigned outbox as the write-once archive
+Evidence is kept with the project's private research records as the write-once archive
 `2026-10-29-p1-m1-io-122851Z.tar.gz` and its SHA-256 receipt. It contains the
 original build/RED/review logs, final core/host logs, the constrained-affinity
 run, repeated corrected smoke logs, push-gate logs and a revision manifest.
@@ -157,6 +157,7 @@ run, repeated corrected smoke logs, push-gate logs and a revision manifest.
   757, 849 and 856. No baseline CJK text was found in the scanned source/docs.
   The common OS1/OS2 CI/hook scanner is owned by M0 and is not yet part of these
   adopted M0 hook revisions. Published history was not rewritten.
+  (Resolved later by the M0/M1 integration; see `integrate-m0-m1.md`.)
 
 Differences from the task: the 10-million ring total is across 32 seeds with
 bounded epochs, explicitly documented above. The M1 VLAN fixtures exercise

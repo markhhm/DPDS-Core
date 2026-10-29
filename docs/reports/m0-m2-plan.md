@@ -3,13 +3,13 @@
 # P1 M0 / M2 execution plan
 
 **Goal:** Independently reproduce M0 and enforce checks before starting the
-independent M2 reference/reporting tools. Task authority: research records
-`research/agents/tasks/2026-10-29-p1-m0-m2-obs.md` and the M0/M2 roadmap.
+independent M2 reference/reporting tools. Task authority: the
+project's private M0/M2 task and roadmap.
 
 **Architecture:** Repository-owned, installed pre-push scripts run existing
 checks. M2 lives in host `tools/g2/`, uses Python Fraction and its own selector,
 and consumes complete ingress/receiver streams. It never imports Rust model
-logic. Observer wiring follows worker's forthcoming specification.
+logic. Observer wiring follows the design owner's forthcoming specification.
 
 **Constraints:** Only own clones/branches; no testbed, shared branch pushes,
 hook bypass, hardware timing or throughput claims. Preserve existing APIs,
@@ -36,12 +36,12 @@ fixtures and submodule pin during M0. Raw logs are append-only in own outbox.
 - [x] Add minimal installers/hooks; run actual deliberate-failure commits
   locally, verify rejection, discard only these authorized commits, then green.
 - [ ] Commit M0 reports with log paths; push only `hng/m0-hooks` on each fork.
-  Record M0 in own research records branch and lab notebook for lead integration.
+  Record M0 in the private research records for lead integration.
 - [ ] Read Stage 1 report/probe contract and current M2 specification. Write
   failing oracle tests, then implement streaming reference and core harness.
 - [ ] Write failing reporter injection/coverage tests, then implement reporter.
 - [ ] Compare at least 10^6 events, run all relevant checks, record limits and
   pending observer specification; push `hng/m2-obs` only after hooks pass.
 
-Implementation follows the supplied task directly in this session. integration lead
-owns review/integration; research records main completion remains the lead's gate.
+Implementation follows the supplied task directly in this session. The lead
+owns review/integration and the completion gate.

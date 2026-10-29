@@ -1,6 +1,8 @@
-# M0 baseline and pre-push verification — observation worker
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 
-2026-10-29. Software-only on development host/WSL2. No testbed access.
+# M0 baseline and pre-push verification
+
+2026-10-29. Software-only on a development workstation (WSL2). No testbed access.
 
 Fresh network clones reproduced DPDS-Core
 `9531a95e15b13801e117d2a0441f8d26d8d16ee4` and host
@@ -15,9 +17,8 @@ No baseline code was changed or repaired.
 | `meson setup build` / `meson compile -C build` | exit 0, pinned core built |
 | `meson test -C build --print-errorlogs` | 9 passed, 0 failed |
 
-Environment is exactly the exports in the implementation worker report: Cargo from
-`~/.cargo/bin`, Meson/Ninja from `~/opt/hng-build/bin`, DPDK pkg-config and
-runtime library paths under `~/opt/dpdk-26.03/lib/x86_64-linux-gnu`.
+Environment: stable Cargo, Meson and Ninja on `PATH`; DPDK 26.03 installed in a
+user prefix, with its pkg-config and runtime library directories exported.
 
 ## Hooks
 
@@ -43,14 +44,9 @@ Missing installers were exercised before implementation (exit 127 in both repos)
 
 ## Evidence and integration
 
-Full original logs (append-only, no files overwritten):
-
-- `<shared-outbox>/2026-10-29-m0-baseline-115815Z/`
-- `<shared-outbox>/2026-10-29-m0-hooks-115945Z/`
-
-implementation worker's handoff report is already present in research records origin/main
-(`11eb2eb` introduced it). This report and hook branches are submitted for
-**integration lead review**, with no push to main or hng/core. The lead owns integration.
+Full original logs are kept with the project's private research records.
+This report and the hook branches were submitted for review, with no push to
+main or hng/core; integration followed review.
 M2 can now proceed on separate `hng/m2-obs` branches after M0 pushes succeed.
 
 Deviations: none in baseline or checks. Hook validation invokes installed hooks

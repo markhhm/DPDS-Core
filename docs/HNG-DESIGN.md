@@ -1,8 +1,10 @@
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+
 # HNG P1 scheduling engine
 
-Status: implementation contract for `implementation worker`, including the 19:55 trace
+Status: implementation contract for the HNG engine and host, including the trace
 addition; design and offline checks only.
-Author: worker, 2026-10-29. Hardware execution requires Mark's approval.
+Written 2026-10-29. Hardware execution requires the project owner's approval.
 
 ## 1. Scope and evidence
 
@@ -14,16 +16,15 @@ line have independent states: two lines bidirectionally require four states.
 Cable uses fixed t and the seeded late subset. LEO uses monotone trace replay.
 Both run in this engine, replacing kernel TheaterQ for Step 2.
 
-The controlling research records snapshot is `78d949f6cf25c9d00a5a9f5c60515c2d1ee928cb`
-(pulled again after the added user instruction):
+The requirements come from the project's private research repository at snapshot
+`78d949f6cf25c9d00a5a9f5c60515c2d1ee928cb`:
 
-- `research/agents/tasks/2026-10-29-design-reviewer.md` specifies this deliverable.
-- `research/plans/active/step2-routing-demo-design.md`, decisions 15:30/15:40,
-  19:10 and notes 19:20/19:35/19:55: shared C/Q, G2, fork DPDS, existing
+- The P1 design task specifies this deliverable.
+- The Step 2 routing design decisions (2026-10-29): shared C/Q, G2, fork DPDS, existing
   cross-NUMA NICs, 32 GiB hugepage reservation, **10G then 100G**, no 40G gate,
   VLAN-separated cable/LEO, trace delay/loss/outages. Trace splicing follows
   05:15 and its 10:00 correction, detailed in section 5a below.
-- `research/reviews/100g-emulator-p0-2026-10-29/report.md`, read in full:
+- The P0 feasibility report, read in full:
   E08–E18 are code evidence; sections III/IV/VI and P1-0 supply the model,
   resource estimates and measurement requirements. Its earlier 40G proposal
   and pending-P1 wording are superseded by the decisions above.
@@ -727,7 +728,7 @@ seq 0 just because it is due fails, even if all offline sorting tests pass.
 ### Software PMDs: integration, not hardware timing proof
 
 Use isolated process prefixes, small pools and no physical PCI device access.
-For tests on development host, request `--no-pci --no-huge` where supported by the selected
+For tests on a development workstation, request `--no-pci --no-huge` where supported by the selected
 DPDK build; do not change system hugepages or bind any physical interface.
 All output pcaps go to new per-run paths because pcap TX overwrites files.
 
@@ -753,9 +754,9 @@ matrix. No software test result is a 10G/100G throughput claim.
 
 ## 9. G2 plan: 10G, then 100G, after approval
 
-This section is a test plan, not permission to run hardware. experiment coordinator
-arranges PF handover/restoration and Mark approves the time slot. development host sessions
-do not connect to testbed. Keep existing Stage 1/1G work and borrowers intact.
+This section is a test plan, not permission to run hardware. The testbed operator
+arranges PF handover/restoration and the project owner approves the time slot.
+Development workstations do not connect to the testbed. Keep existing Stage 1/1G work and borrowers intact.
 
 1. Freeze P1-0 manifest: exact versions, C/Q/bytes, seeds, cross-NUMA placement,
    memory bound, clock conversion and observation uncertainty. Prove generator
@@ -770,7 +771,7 @@ do not connect to testbed. Keep existing Stage 1/1G work and borrowers intact.
    physical link rate separately from offered rate. Record Q occupancy/drops
    and ensure an external merger has not already discarded the offered load.
 4. Warm up beyond t+δ and Q fill, then observe steady state. P0 proposes at
-   least 10 minutes per cell with independent repeats; experiment coordinator
+   least 10 minutes per cell with independent repeats; the testbed operator
    registers durations/repeats within approved access. Include fill, transitions
    and final drain. Do not discard tails/missing records to improve a gate.
 5. Pass every required cell at 10G before proceeding to 100G. No 40G gate.
@@ -839,21 +840,21 @@ The engineering defaults in this document are explicit proposals: Q includes
 in-service L2 bytes, C includes wire overhead, event-time admission, integer
 rounding, the named counter selector, service-time trace lookup, retained-packet
 clamp and explicit release-time outage actions. They make implementation possible now.
-experiment coordinator/research records must register them in the experiment manifest
+The testbed operator and research lead must register them in the experiment manifest
 before interpreting results; changing them requires changed fixtures/oracle.
 
 | Owner | Remaining decision or evidence | Consequence |
 |---|---|---|
-| experiment coordinator + research records | Register Q byte convention, C/Q values, workload/burst envelope and exact G2 matrix/repetitions | Prevents comparing different bottleneck models under one label |
-| experiment coordinator | Validate RX observation point, clock mapping/uncertainty and full-flow identity coverage | Scheduler proof cannot establish measured G2; unresolved observer error means INCONCLUSIVE |
-| implementation worker + design review | Demonstrate serialized owner throughput, exact fractional arithmetic cost, bounded memory and TX suffix handling | Single owner may bottleneck; more per-flow workers cannot silently replace shared C/Q |
-| experiment coordinator | Actual pool stride, hugepages per NUMA node, cross-socket DMA/CPU interference | 32 GiB and theoretical memory bandwidth are estimates, not capacity certification |
-| experiment coordinator | Pin a working CX-4/DPDK/rdma-core/firmware combination; generator/observer timestamp-on capacity | Upstream README and P0 version snippets do not prove this combination |
-| experiment coordinator + research records | Register normalized trace direction/OWD conversion, loss reconstruction, outage drop/hold semantics, terminal policy and segment provenance | Missing samples are not automatically outages; faithful per-packet late replay remains deferred |
-| research records | Interpretation of realization error when late releases collide at full line rate | Exact scheduled δ remains true, but physical extra delay can exceed δ; report errors, do not redefine deadlines |
-| Mark via experiment coordinator | Hardware slot/VM/PF access after Stage 1 or approved idle daytime; any later hardware change | No testbed access or hardware changes in this task |
+| testbed operator + research lead | Register Q byte convention, C/Q values, workload/burst envelope and exact G2 matrix/repetitions | Prevents comparing different bottleneck models under one label |
+| testbed operator | Validate RX observation point, clock mapping/uncertainty and full-flow identity coverage | Scheduler proof cannot establish measured G2; unresolved observer error means INCONCLUSIVE |
+| engine developer + design review | Demonstrate serialized owner throughput, exact fractional arithmetic cost, bounded memory and TX suffix handling | Single owner may bottleneck; more per-flow workers cannot silently replace shared C/Q |
+| testbed operator | Actual pool stride, hugepages per NUMA node, cross-socket DMA/CPU interference | 32 GiB and theoretical memory bandwidth are estimates, not capacity certification |
+| testbed operator | Pin a working CX-4/DPDK/rdma-core/firmware combination; generator/observer timestamp-on capacity | Upstream README and P0 version snippets do not prove this combination |
+| testbed operator + research lead | Register normalized trace direction/OWD conversion, loss reconstruction, outage drop/hold semantics, terminal policy and segment provenance | Missing samples are not automatically outages; faithful per-packet late replay remains deferred |
+| research lead | Interpretation of realization error when late releases collide at full line rate | Exact scheduled δ remains true, but physical extra delay can exceed δ; report errors, do not redefine deadlines |
+| project owner via testbed operator | Hardware slot/VM/PF access after Stage 1 or approved idle daytime; any later hardware change | No testbed access or hardware changes in this task |
 
-When implementation worker requests review, provide host/core SHAs, diff base, test output,
+When the engine developer requests review, provide host/core SHAs, diff base, test output,
 resolved example config and pending gaps. Review every row of sections 2/8,
 especially finite Q release, input watermark, direction mapping, stable ties,
 fractional service time, selection replay, mbuf custody, short TX and shutdown.
@@ -877,8 +878,8 @@ Offline checks on 2026-10-29:
   full-oracle-evidence requirements; both were added. Its trace review clarified
   actual-time outage losses, cross-line arbitration and terminal HOLD semantics.
 
-The arithmetic script is an intermediate artifact at
-`<shared-outbox>/2026-10-29-dpds-design-check-v1.py`.
+The arithmetic script is an intermediate artifact kept with the project's
+private research records; it is not part of this repository.
 These checks validate formulas and examples, not the DPDS host or a deployed
 HNG engine. No DPDK PMD integration or hardware/G2 test was run by this task.
 

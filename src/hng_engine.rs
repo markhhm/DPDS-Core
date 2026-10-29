@@ -133,6 +133,8 @@ pub struct LineInfo {
     pub always_late: bool,
 }
 
+// Owners update their lines per packet; 128-byte alignment keeps them apart.
+#[repr(align(128))]
 pub struct Line {
     pub info: LineInfo,
     pub(crate) buffer: HngBuffer,
@@ -330,7 +332,7 @@ pub unsafe extern "C" fn hng_engine_peek(
     };
     match (buffer.ready(now_ns, watermark_ns), out.as_mut()) {
         (Some(p), Some(out)) => {
-            *out = *p;
+            *out = p;
             true
         }
         _ => false,
@@ -611,7 +613,7 @@ pub unsafe extern "C" fn hng_line_peek(
         out.as_mut(),
     ) {
         (Some(p), Some(out)) => {
-            *out = *p;
+            *out = p;
             true
         }
         _ => false,
@@ -750,5 +752,38 @@ pub unsafe extern "C" fn hng_lines_pop_merged(
             }
         }
         _ => -1,
+    }
+}
+
+/// Offer `n` packets in order, packet i to `lines[line_index[i]]`, as if
+/// `hng_line_offer_record` were called for each: `results[i]` gets the outcome
+/// and, when ACCEPTED, `records[i]` the admitted record.
+/// # Safety
+/// The input arrays hold `n` entries, `results` and `records` are writable for
+/// `n` entries, every `line_index` is in range of `lines`, and every handle it
+/// selects is live and owned by the calling thread.
+#[no_mangle]
+pub unsafe extern "C" fn hng_lines_offer_burst(
+    lines: *const *mut Line,
+    line_index: *const u16,
+    packets: *const *mut std::ffi::c_void,
+    bytes: *const u32,
+    arrivals_ns: *const u64,
+    seqs: *const u64,
+    n: usize,
+    results: *mut PushResult,
+    records: *mut HngPacket,
+) {
+    for i in 0..n {
+        let line = *lines.add(usize::from(*line_index.add(i)));
+        *results.add(i) = line.as_mut().map_or(PushResult::InvalidInput, |l| {
+            l.buffer.push_with_record(
+                *packets.add(i),
+                *bytes.add(i),
+                *arrivals_ns.add(i),
+                *seqs.add(i),
+                records.add(i).as_mut(),
+            )
+        });
     }
 }

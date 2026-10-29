@@ -128,7 +128,7 @@ fn metadata_reservation_is_exact_per_storage_slot() {
     let e = Box::into_raw(Box::new(Engine::from_json(&json()).unwrap()));
     let slot = hng_slot_metadata_bytes();
     // Two packet FIFOs and the service ledger, each reserved at the slot capacity.
-    assert!(slot >= 2 * std::mem::size_of::<dpds_core::hng::HngPacket>());
+    assert!(slot > 0);
     assert_eq!(unsafe { hng_engine_metadata_bytes(e) }, 2 * 32 * slot);
     assert_eq!(unsafe { hng_engine_metadata_bytes(std::ptr::null()) }, 0);
     drop(unsafe { Box::from_raw(e) });
@@ -343,4 +343,92 @@ fn merged_pop_matches_a_host_side_merge() {
     let manual = run(false);
     assert!(manual.len() > 100 && manual.iter().any(|x| x.0 == 1));
     assert_eq!(manual, run(true));
+}
+
+/// FIFO entries are one 64-byte cache line; the ledger entry stays 32 bytes.
+#[test]
+fn stored_packets_fit_one_cache_line() {
+    assert_eq!(
+        dpds_core::hng_engine::hng_slot_metadata_bytes(),
+        2 * 64 + 32
+    );
+}
+
+/// A burst offer gives the same results and records as one offer per packet.
+#[test]
+fn burst_offer_matches_single_offers() {
+    use dpds_core::hng::{HngPacket, PushResult};
+    use dpds_core::hng_engine::*;
+    let run = |burst: bool| -> Vec<(PushResult, u64, u64)> {
+        let e = Box::into_raw(Box::new(Engine::from_json(&four_lines()).unwrap()));
+        let handles: Vec<*mut Line> = (0..4).map(|i| unsafe { hng_engine_line(e, i) }).collect();
+        let mut out = Vec::new();
+        for b in 0..20u64 {
+            let n = 16usize;
+            let line: Vec<u16> = (0..n).map(|i| ((b as usize + i * 3) % 4) as u16).collect();
+            let ptrs: Vec<*mut std::ffi::c_void> = (0..n)
+                .map(|i| (b * 16 + i as u64 + 1) as usize as *mut _)
+                .collect();
+            let bytes: Vec<u32> = (0..n).map(|i| if i % 5 == 0 { 0 } else { 76 }).collect(); // 0 is invalid
+            let arrivals: Vec<u64> = (0..n).map(|i| b * 1000 + i as u64 * 50).collect();
+            let seqs: Vec<u64> = (0..n).map(|i| b * 16 + i as u64).collect();
+            let mut results = vec![PushResult::InvalidInput; n];
+            let mut records = vec![std::mem::MaybeUninit::<HngPacket>::zeroed(); n];
+            if burst {
+                unsafe {
+                    hng_lines_offer_burst(
+                        handles.as_ptr(),
+                        line.as_ptr(),
+                        ptrs.as_ptr(),
+                        bytes.as_ptr(),
+                        arrivals.as_ptr(),
+                        seqs.as_ptr(),
+                        n,
+                        results.as_mut_ptr(),
+                        records.as_mut_ptr().cast(),
+                    )
+                };
+            } else {
+                for i in 0..n {
+                    results[i] = unsafe {
+                        hng_line_offer_record(
+                            handles[line[i] as usize],
+                            ptrs[i],
+                            bytes[i],
+                            arrivals[i],
+                            seqs[i],
+                            records[i].as_mut_ptr(),
+                        )
+                    };
+                }
+            }
+            for i in 0..n {
+                let r = unsafe { records[i].assume_init() };
+                let accepted = results[i] == PushResult::Accepted;
+                out.push((
+                    results[i],
+                    if accepted { r.deadline_ns } else { 0 },
+                    if accepted { r.release_ns } else { 0 },
+                ));
+            }
+        }
+        let mut p = std::mem::MaybeUninit::<HngPacket>::uninit();
+        for &l in &handles {
+            while unsafe { hng_line_abort_pop(l, p.as_mut_ptr()) } {}
+            unsafe { hng_line_end_input(l) };
+        }
+        unsafe { hng_engine_drain_advance(e, u64::MAX / 2) };
+        assert!(unsafe { hng_engine_destroy(e) });
+        out
+    };
+    let single = run(false);
+    assert!(single.iter().any(|r| r.0 == PushResult::Accepted));
+    assert!(single.iter().any(|r| r.0 != PushResult::Accepted));
+    assert_eq!(single, run(true));
+}
+
+/// Lines driven by different owners never share a cache line (or an adjacent-line prefetch pair).
+#[test]
+fn lines_do_not_share_cache_lines() {
+    assert!(std::mem::align_of::<dpds_core::hng_engine::Line>() >= 128);
 }

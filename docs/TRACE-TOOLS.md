@@ -26,7 +26,7 @@ with ZipFile('target/trace-example/synthetic.zip', 'w') as archive:
 PY
 python scripts/garcia_trace.py target/trace-example/synthetic.zip \
   target/trace-example/normalized.json \
-  --start-ns 0 --duration-ns 15000000 --offset-ns 0
+  --start-ns 0 --duration-ns 15000000 --offset-ns 0 --queue-drain-ns 0
 python scripts/compare_trace.py target/trace-example/normalized.json \
   tests/fixtures/theaterq-synthetic.csv \
   --source target/trace-example/synthetic.zip \
@@ -57,6 +57,7 @@ python scripts/garcia_trace.py SOURCE.zip OUTPUT.json
     --start-ns INTEGER --duration-ns INTEGER
     (--offset-ns INTEGER | --corridor A|B)
     [--seed INTEGER] [--late-threshold-ns INTEGER]
+    [--queue-drain-ns INTEGER] [--hold-delta-ns INTEGER]
 ```
 
 - `SOURCE.zip`: one unencrypted CSV member. Expected header:
@@ -77,6 +78,13 @@ python scripts/garcia_trace.py SOURCE.zip OUTPUT.json
   sample pair**, before cropping; changing the crop does not restart the RNG.
 - `--late-threshold-ns`: default 20,000,000 ns. This is the diagnostic threshold
   used below, not a parameter that inserts late packets into the trace.
+- `--queue-drain-ns`: explicitly register terminal HOLD for replay. The extension
+  is `max(1, t_max + hold_delta + queue_drain)` ns. `t_max` is computed from the
+  actual converted rows including propagation offset. `--hold-delta-ns` defaults
+  to zero and only enlarges the coverage budget. It never inserts late packets.
+  The recipe records each component and extension; the profile records the
+  finite horizon. Without a queue budget, conversion is diagnostic-only with
+  terminal error. A real replay must declare its actual maximum queue drain.
 
 The ZIP and uncompressed member are each limited to 128 MiB per run. At least
 two samples are required. Noninteger/negative values, duplicate sequence numbers,
@@ -162,10 +170,11 @@ measured raw or normalized trace is bundled. Other-source licenses and separate
 code-license concerns are recorded in the inventory.
 
 The delay-only profile sets loss to zero and outage flags to false. Its required
-`outage_action=drop` is inactive because no down interval exists. Terminal policy
-is `error` with no extension horizon. This does **not** implement source outages,
-synthetic losses, HOLD coverage or an end-to-end lossless drain. Those decisions
-remain outside this delivery.
+`outage_action=drop` is inactive because no down interval exists. Registered replay
+uses finite terminal HOLD; it is distinct from an outage hold. The comparator
+checks the recorded horizon against the actual maximum delay and t+delta+Q
+registration. Coverage does not replace rate/storage validation or permit
+admission/drain beyond the declared half-open horizon.
 
 ## Configured-row comparison
 

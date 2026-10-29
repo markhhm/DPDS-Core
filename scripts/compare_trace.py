@@ -57,8 +57,11 @@ def validate_document(document, source):
     if not isinstance(profile, dict) or set(profile) != {
             "end_ns", "terminal", "terminal_horizon_ns", "loss_seed", "outage_action", "rows"}:
         raise ValueError("unsupported profile fields")
-    if (profile["terminal"] != "error" or profile["terminal_horizon_ns"] is not None or
-            profile["outage_action"] != "drop" or type(profile["loss_seed"]) is not int or
+    terminal_ok = ((profile["terminal"] == "error" and profile["terminal_horizon_ns"] is None) or
+                   (profile["terminal"] == "hold_last_sample" and type(profile["terminal_horizon_ns"]) is int and
+                    type(profile["end_ns"]) is int and
+                    profile["end_ns"] < profile["terminal_horizon_ns"] <= U64_MAX))
+    if (not terminal_ok or profile["outage_action"] != "drop" or type(profile["loss_seed"]) is not int or
             not 0 <= profile["loss_seed"] <= U64_MAX or type(profile["end_ns"]) is not int or
             not 0 < profile["end_ns"] <= U64_MAX or recipe["late_threshold_ns"] < 0 or
             recipe["effective_end_ns"] - recipe["effective_start_ns"] != profile["end_ns"]):
@@ -80,6 +83,16 @@ def validate_document(document, source):
         previous = row["at_ns"]
     if rows[0]["at_ns"] != 0:
         raise ValueError("intervals must start at zero")
+    if profile["terminal"] == "hold_last_sample":
+        budget = recipe.get("drain_budget")
+        fields = {"t_max_ns", "delta_ns", "queue_drain_ns", "extension_ns"}
+        if (not isinstance(budget, dict) or set(budget) != fields or
+                any(type(value) is not int or value < 0 for value in budget.values())):
+            raise ValueError("invalid terminal drain registration")
+        extension = max(1, max(row["t_ns"] for row in rows) + budget["delta_ns"] + budget["queue_drain_ns"])
+        if (budget["t_max_ns"] != max(row["t_ns"] for row in rows) or budget["extension_ns"] != extension or
+                profile["terminal_horizon_ns"] != profile["end_ns"] + extension):
+            raise ValueError("terminal HOLD does not match the registered t+delta+Q budget")
     return recipe
 
 

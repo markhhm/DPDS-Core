@@ -67,6 +67,12 @@ Outages are separately registered synthetic profiles, one `drop` and one `hold`;
 never infer them from Garcia gaps. Outage hold delays release until recovery;
 terminal HOLD extends the last sample. These are distinct operations.
 
+Registered conversion fixture: natural duration 15 ms, native maximum delay
+50 ms, corridor A offset 45.6 ms, so `t_max=95.6 ms`. With `delta=0` and
+`queue_drain=50 ms`, terminal extension is 145.6 ms and horizon is 160.6 ms.
+The separate allowance test uses delta 5 ms, extension 150.6 ms and horizon
+165.6 ms. These are fixture values, not defaults for an arbitrary real queue.
+
 OneWeb and Choi adapters await source-subset and feasibility decisions. Their
 raw data is not included. Source licenses and attribution remain as recorded
 in the inventory; code remains Apache-2.0.

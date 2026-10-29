@@ -236,10 +236,17 @@ def lateness(source, document, threshold_ns):
             "histograms_equal": source_stats["histogram"] == configured_stats["histogram"]}
 
 
-def convert(path, start_ns, duration_ns, offset_ns=0, seed=1, late_threshold_ns=20_000_000, *, corridor=None):
+def convert(path, start_ns, duration_ns, offset_ns=0, seed=1, late_threshold_ns=20_000_000, *,
+            corridor=None, queue_drain_ns=None, delta_ns=0):
     source = read_source(path)
     if any(type(value) is not int for value in (start_ns, duration_ns, offset_ns, seed, late_threshold_ns)):
         raise ValueError("conversion parameters must be integers")
+    if type(delta_ns) is not int or not 0 <= delta_ns <= U64_MAX:
+        raise ValueError("invalid delta drain allowance")
+    if queue_drain_ns is None and delta_ns != 0:
+        raise ValueError("delta allowance needs an explicit queue drain budget")
+    if queue_drain_ns is not None and (type(queue_drain_ns) is not int or not 0 <= queue_drain_ns <= U64_MAX):
+        raise ValueError("invalid queue drain budget")
     propagation = None
     if corridor is not None:
         if offset_ns != 0:
@@ -257,11 +264,21 @@ def convert(path, start_ns, duration_ns, offset_ns=0, seed=1, late_threshold_ns=
     rows, begin, finish, stats = curve.intervals(start_ns, duration_ns, offset_ns)
     if any(row["t_ns"] + finish - begin > U64_MAX for row in rows):
         raise ValueError("delay plus end overflows engine timestamps")
+    drain_budget, horizon = None, None
+    if queue_drain_ns is not None:
+        maximum = max(row["t_ns"] for row in rows)
+        extension = max(1, maximum + delta_ns + queue_drain_ns)
+        horizon = finish - begin + extension
+        if horizon > U64_MAX:
+            raise ValueError("terminal HOLD horizon overflows engine timestamps")
+        drain_budget = {"t_max_ns": maximum, "delta_ns": delta_ns,
+                        "queue_drain_ns": queue_drain_ns, "extension_ns": extension}
     recipe = {"version": VERSION, "implementation_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
               "numpy_version": np.__version__, "python_version": platform.python_version(),
               "start_ns": start_ns, "duration_ns": duration_ns, "effective_start_ns": begin,
               "effective_end_ns": finish, "offset_ns": offset_ns,
               "propagation": propagation,
+              "drain_budget": drain_budget,
               "offset_application": "after native 1000 ns latency quantization", "seed": seed,
               "rng": "numpy-PCG64-full-source-pairs", "step_ms": 1, "trend_window_ns": 5_000_000,
               "slope_clip_ms_per_ms": 1, "floor_window_ns": 1_000_000_000,
@@ -272,7 +289,8 @@ def convert(path, start_ns, duration_ns, offset_ns=0, seed=1, late_threshold_ns=
                 "units": "ns_owd", "conversion": json.dumps(recipe, sort_keys=True),
                 "source_sha256": source.sha256, "splice_policy": "natural_hold",
                 "trace_epoch_ns": 0, "time_scale": 1,
-                "profile": {"end_ns": finish - begin, "terminal": "error", "terminal_horizon_ns": None,
+                "profile": {"end_ns": finish - begin, "terminal": "hold_last_sample" if horizon else "error",
+                            "terminal_horizon_ns": horizon,
                             "loss_seed": 0, "outage_action": "drop", "rows": rows}}
     manifest = {"schema": "garcia-conversion-manifest-v1", "recipe": recipe,
                 "source": {"filename": source.filename, "member": source.member, "sha256": source.sha256,
@@ -302,17 +320,21 @@ def main():
     propagation.add_argument("--corridor", choices=sorted(POP_DELAY_NS))
     parser.add_argument("--seed", type=int, default=1)
     parser.add_argument("--late-threshold-ns", type=int, default=20_000_000)
+    parser.add_argument("--queue-drain-ns", type=int, help="register finite terminal HOLD with this Q drain budget")
+    parser.add_argument("--hold-delta-ns", type=int, default=0, help="additional drain allowance; does not add late packets")
     args = parser.parse_args()
     sidecar = args.output.with_suffix(".manifest.json")
     try:
         if args.output == sidecar or args.output.exists() or sidecar.exists():
             raise ValueError("output or manifest already exists")
         document, manifest = convert(args.source, args.start_ns, args.duration_ns, args.offset_ns,
-                                     args.seed, args.late_threshold_ns, corridor=args.corridor)
+                                     args.seed, args.late_threshold_ns, corridor=args.corridor,
+                                     queue_drain_ns=args.queue_drain_ns, delta_ns=args.hold_delta_ns)
         write_json(args.output, document)
         manifest["normalized_sha256"] = hashlib.sha256(args.output.read_bytes()).hexdigest()
         write_json(sidecar, manifest)
-        print(json.dumps({"intervals": manifest["interval_count"], "lateness": manifest["lateness"]}))
+        print(json.dumps({"intervals": manifest["interval_count"], "drain_budget": manifest["recipe"]["drain_budget"],
+                          "lateness": manifest["lateness"]}))
     except (ValueError, OSError, UnicodeError) as error:
         parser.exit(2, f"conversion failed: {error}\n")
 

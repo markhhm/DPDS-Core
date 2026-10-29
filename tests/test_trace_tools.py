@@ -82,6 +82,20 @@ class ConverterTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.tool.convert(path, 0, 15_000_000, 123, corridor="A")
 
+    def test_terminal_hold_records_actual_t_delta_queue_budget(self):
+        self.assertIn("queue_drain_ns", self.tool.convert.__code__.co_varnames, "finite drain registration is absent")
+        path = self.source()
+        document, manifest = self.tool.convert(path, 0, 15_000_000, corridor="A",
+                                               queue_drain_ns=50_000_000, delta_ns=5_000_000)
+        self.assertEqual(document["profile"]["terminal"], "hold_last_sample")
+        self.assertEqual(document["profile"]["terminal_horizon_ns"], 165_600_000)
+        self.assertEqual(manifest["recipe"]["drain_budget"], {
+            "t_max_ns": 95_600_000, "delta_ns": 5_000_000,
+            "queue_drain_ns": 50_000_000, "extension_ns": 150_600_000})
+        for budget in (-1, True, 2**64):
+            with self.subTest(budget=budget), self.assertRaises(ValueError):
+                self.tool.convert(path, 0, 15_000_000, queue_drain_ns=budget)
+
     def test_cli_accepts_registered_corridor_instead_of_explicit_offset(self):
         path = self.source()
         output = self.directory / "corridor.json"
@@ -165,11 +179,12 @@ class ConverterTests(unittest.TestCase):
         path = self.source()
         output = self.directory / "normalized.json"
         command = [sys.executable, str(ROOT / "scripts/garcia_trace.py"), str(path), str(output),
-                   "--start-ns", "0", "--duration-ns", "15000000", "--offset-ns", "0"]
+                   "--start-ns", "0", "--duration-ns", "15000000", "--offset-ns", "0", "--queue-drain-ns", "0"]
         first = subprocess.run(command, capture_output=True, text=True)
         self.assertEqual(first.returncode, 0, first.stderr)
         manifest = json.loads(output.with_suffix(".manifest.json").read_text())
         self.assertEqual(manifest["normalized_sha256"], hashlib.sha256(output.read_bytes()).hexdigest())
+        self.assertEqual(json.loads(output.read_text())["profile"]["terminal_horizon_ns"], 65_000_000)
         before = output.read_bytes()
         second = subprocess.run(command, capture_output=True, text=True)
         self.assertNotEqual(second.returncode, 0)
@@ -282,6 +297,14 @@ class ComparatorTests(unittest.TestCase):
     def test_declared_offset_is_applied_to_reference_without_requantization(self):
         document, _ = self.converter.convert(self.path, 0, 15_000_000, 731, 1, 20_000_000)
         self.assertTrue(self.compare.compare(document, self.rows, self.source)["intervals_equal"])
+
+    def test_registered_terminal_hold_preserves_row_equality_and_rejects_short_budget(self):
+        self.assertIn("queue_drain_ns", self.converter.convert.__code__.co_varnames)
+        document, _ = self.converter.convert(self.path, 0, 15_000_000, queue_drain_ns=50_000_000)
+        self.assertTrue(self.compare.compare(document, self.rows, self.source)["intervals_equal"])
+        document["profile"]["terminal_horizon_ns"] -= 1
+        with self.assertRaises(ValueError):
+            self.compare.compare(document, self.rows, self.source)
 
     def test_invalid_source_schema_rows_and_nonportable_metadata_are_rejected(self):
         for mutate in (

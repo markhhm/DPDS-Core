@@ -10,6 +10,8 @@ fork has been released yet.
 
 ### Added
 
+- Finite terminal HOLD registration from actual converted maximum delay plus
+  explicit delta/Q drain allowances, with horizon validation by the comparator.
 - Canonical paired Garcia pool manifests with DL-derived phase, source hashes,
   missing-phase exclusions and strict >0.5 s measurement-gap window exclusions.
 - Explicit corridor A/B propagation conversion with the registered exact

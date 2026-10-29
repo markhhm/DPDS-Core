@@ -52,7 +52,7 @@ The supplied machine, slot topology, NIC ordering part number (OPN), firmware, t
 | HNG contract | This branch's `d5df0b7`, [HNG-DESIGN.md](HNG-DESIGN.md), including trace/VLAN additions | Four independent `(line, direction)` C/Q states, long-delay storage and full-flow observation requirements |
 | [DPDS host][host] | `5cd3b6b23307d39a7a0a4dc48c54520faa5cc17b`; README, `dpds.c`, common configuration, receive/transmit paths, Meson and Dockerfile | **Code:** one or two ports, 2–4 lcores, one RX/TX queue per port. One scheduler worker owns up to four line/direction states. Additional CPU cores do not automatically parallelize the engine |
 | [DPDS-Core][core] | `9531a95e15b13801e117d2a0441f8d26d8d16ee4`; Cargo metadata, README and HNG engine/trace/buffer sources | **Code:** Rust scheduling is independent of DPDK and physical NICs. Two packet FIFOs and a service ledger reserve capacity through the ordinary allocator; mbuf hugepages are not the whole memory requirement |
-| [Stage 1 target-check reference][stage1] | `de035a63f5d0135ee70b0bceb27d5051897b85a1`; target-check document/runner and `C2/harness/target_rate_metrics.py`, `target_rate_check.py`, fetched and read without execution | **Code:** capture before/after the emulator in one VM clock domain, pair by flow and sequence, compare with t plus the selected-late increment. This revision is awaiting a second review; pin it as a method reference, not an approved hardware result |
+| Stage 1 target-check reference (not public; location in the private deployment manifest) | `de035a63f5d0135ee70b0bceb27d5051897b85a1`; target-check document/runner and `C2/harness/target_rate_metrics.py`, `target_rate_check.py`, fetched and read without execution | **Code:** capture before/after the emulator in one VM clock domain, pair by flow and sequence, compare with t plus the selected-late increment. This revision is awaiting a second review; pin it as a method reference, not an approved hardware result |
 
 **Code:** the host records relative software RX time from `host_now_ns()` and TX-submit lateness. These are not per-packet wire timestamps. The complete independent observation/export/pairing path required in section 8 is still a software-stage deliverable.
 
@@ -284,7 +284,6 @@ Vendor/DPDK sources checked on 2026-10-29. Pinned code, project decisions and ca
 
 [host]: https://github.com/markhhm/DPDS/tree/5cd3b6b23307d39a7a0a4dc48c54520faa5cc17b
 [core]: https://github.com/markhhm/DPDS-Core/tree/9531a95e15b13801e117d2a0441f8d26d8d16ee4
-[stage1]: https://example.invalid/stage1/tree/de035a63f5d0135ee70b0bceb27d5051897b85a1
 [docker]: https://github.com/markhhm/DPDS/blob/5cd3b6b23307d39a7a0a4dc48c54520faa5cc17b/.devcontainer/Dockerfile
 [cx6]: https://networking-docs.nvidia.com/connectx6dxhw/introduction
 [cx5]: https://docs.nvidia.com/networking/display/nvidia-connectx-5-ethernet-adapter-cards-user-manual.pdf

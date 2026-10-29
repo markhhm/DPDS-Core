@@ -16,7 +16,7 @@ The controlling project task is the M2 specification request and roadmap OS1–O
 | Core implementation/API | DPDS-Core `9531a95e15b13801e117d2a0441f8d26d8d16ee4` | Current line/configuration/trace support and custody boundary |
 | Host | DPDS `5cd3b6b23307d39a7a0a4dc48c54520faa5cc17b` | Physical ingress ordinal, software arrival time, TX and resource counters |
 | M2 draft | DPDS `22368d97f1c6ad0ad238a2ecc03358eababa50a1`, `tools/g2/` | Independent Fraction reference, CLI, sampling domain, report and probe compatibility |
-| Stage 1 method | [Research measurement repository, `de035a63f5d0135ee70b0bceb27d5051897b85a1`][stage1] | Target-check document/runner, `target_rate_metrics.py`, `target_rate_check.py`, probe emitter; **pending second review** |
+| Stage 1 method | Stage 1 measurement repository at commit `de035a63f5d0135ee70b0bceb27d5051897b85a1` (not public; its location is recorded in the private deployment manifest) | Target-check document/runner, `target_rate_metrics.py`, `target_rate_check.py`, probe emitter; **pending second review** |
 
 Normative terms: **MUST** is required for this contract; **proposal** or **estimate** is an engineering choice to register before a run. Vendor capabilities below cite primary sources; no hardware performance is asserted.
 
@@ -285,7 +285,7 @@ Stage 1-compatible dedicated probes can provide a separate diagnostic stream. Th
 
 For sampled signed error `r_i=OWD_i-expected_i`, retain both signed and absolute errors. For sorted absolute errors `x[0..n-1]`, the point q-quantile linearly interpolates at `(n-1)*q`, exactly as Stage 1 `de035a6`; q=0.5 and 0.99. The interpolation convention matters and is versioned. [NIST discussion of quantile conventions][nist]
 
-Default interval: 95% equal-tail binomial order-statistic bounds, matching the draft's intended method. For `K~Binomial(n,q)`, choose `L=max{k in [0,n]: P(K<k)<=0.025}` and `U=min{k in [1,n+1]: P(K>=k)<=0.025}`. The interval is `[X_(L),X_(U)]` using 1-based ranks; `X_(0)=0` for nonnegative absolute error and `X_(n+1)=+infinity` (JSON upper null). Compute binomial tails stably; do not use numerical underflow to turn an unbounded interval into a finite one. Test small n and q=0.99 against exact binomial sums. If a discrete atom/tie occurs, use conservative inclusive bounds.
+Default interval: 95% equal-tail binomial order-statistic bounds, matching the draft's intended method. For `K~Binomial(n,q)`, choose `L=max{k in [0,n]: P(K<k)<=0.025}` and `U=min{k in [1,n+1]: P(K>=k)<=0.025}`. The interval is `[X_(L),X_(U)]` using 1-based ranks; `X_(0)=0` for nonnegative absolute error and `X_(n+1)=+infinity` (JSON upper null). Compute binomial tails stably; do not use numerical underflow to turn an unbounded interval into a finite one. Test small n and q=0.99 against exact binomial sums. Apply these ranks unchanged when errors have ties or atoms: order-statistic bounds over a discrete distribution already cover at least the nominal level, so no tie adjustment is made.
 
 This is a registered **statistical design choice** under independent uniform packet sampling (a hash treated as pseudorandom, not chosen to favor observed errors). It describes the packet distribution in that run, not independence of time-correlated process behavior or reproducibility across runs. Report independent repeats and per-time-window distributions separately; never treat millions of packets as millions of independent experimental repetitions. No pooled CI across changing trace phases. If making a process-level claim beyond the observed run, add a preregistered time-block/repeat analysis; absent that, restrict the claim. A finite-population exact alternative is allowed only as a separately versioned method with matching tests.
 
@@ -413,8 +413,9 @@ Required acceptance fixtures:
 |---|---|
 | 10^6 or more full events, fixed/trace, >=32 seeds | Independent per-packet Q/service/selection/release agreement against a separate engine harness; both directions/four states; reference does not import engine |
 | Delay UP / DOWN | `(e,t)=(10,100),(20,200),(30,200)` -> deadlines 110,220,230; DOWN t=200,100,100 -> 210,210,210 and original order |
-| One ordinary pair swapped | Complete evidence -> order FAIL; include an unsampled pair so timing-only checking cannot pass |
+| One ordinary pair swapped | Two packets on the same line, different release times, neither late; complete evidence -> order FAIL; include an unsampled pair so timing-only checking cannot pass |
 | One delay-storage drop | Complete terminal evidence and missing survivor -> storage FAIL; not reclassified as trace/Q loss |
+| Survivor missing, no terminal record | Complete observer coverage -> FAIL `missing_delivery`; same with one receiver `seq` gap -> INCONCLUSIVE (section 6) |
 | (c) main: 60% receive an extra 0.2 ms | Zero-error baseline; survivors with `ingress_seq % 5 < 3` get +200,000 ns. Median point = 200,000 ns, median CI lower bound = 200,000 ns > 100,000 -> median gate FAIL; p99 gate PASS (all errors <= 200,000 ns); row FAIL with median as the only failing gate |
 | (c1) 5% receive an extra 0.2 ms | Same baseline; `ingress_seq % 20 == 0` gets +200,000 ns. Assert: main count of samples with absolute error > 0 equals the fixture's independently computed k; main max signed error = 200,000 ns; p99 point = 200,000 ns; median point = 0 ns; both timing gates PASS; row PASS |
 | (c3) 5% receive an extra 0.6 ms | Same selector as c1 with +600,000 ns. p99 point and CI lower bound = 600,000 ns > 500,000 -> p99 gate FAIL; median PASS; row FAIL. Variant: +0.2 ms on a registered 0.4 ms baseline tail gives the same p99 FAIL |
@@ -449,7 +450,6 @@ Equipment calibration, M4 capacity measurements, production identity disambiguat
 
 Primary web sources checked 2026-10-29. Mathematical algorithms and resource calculations above are explicit design choices/estimates. Source code is pinned in section 1; no source implementation is copied into the engine.
 
-[stage1]: https://example.invalid/stage1/tree/de035a63f5d0135ee70b0bceb27d5051897b85a1
 [cx6]: https://networking-docs.nvidia.com/connectx6dxhw/introduction
 [nvidia-ts]: https://networking-docs.nvidia.com/mlnxenswum/24070610/time-stamping
 [linux-ts]: https://www.kernel.org/doc/html/latest/networking/timestamping.html

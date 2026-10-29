@@ -5,11 +5,12 @@ set -eu
 cd "$(git rev-parse --show-toplevel)"
 scripts/check-policy.sh
 scripts/check-policy-test.sh
-PYTHONDONTWRITEBYTECODE=1 "${PYTHON:-python3}" -m unittest discover -s tests -p 'test_trace_tools.py'
 . scripts/find-cargo.sh
 "$CARGO" fmt --check
 "$CARGO" clippy --locked --all-targets -- -D warnings
 "$CARGO" test --locked
+"$CARGO" build --locked --bin trace_replay
+PYTHONDONTWRITEBYTECODE=1 "${PYTHON:-python3}" -m unittest discover -s tests -p 'test_*.py'
 # A check that rewrites tracked files (for example a stale Cargo.lock) must fail.
 if [ -n "$(git status --porcelain)" ]; then
     echo "Checks modified the working tree:" >&2

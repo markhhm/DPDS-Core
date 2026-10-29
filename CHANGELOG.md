@@ -10,6 +10,9 @@ fork has been released yet.
 
 ### Added
 
+- Offline `trace_replay` HngBuffer executable and an independent Fraction oracle
+  checking converted synthetic and external real-Garcia per-packet deadlines,
+  clamp and output order. Synthetic replay is mandatory in the shared check suite.
 - Separately registered synthetic outage drop/hold fixtures and a core integration
   test for exact deadline, release, gate-boundary and finite-horizon behavior.
 - Finite terminal HOLD registration from actual converted maximum delay plus

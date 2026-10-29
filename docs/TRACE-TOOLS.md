@@ -208,6 +208,41 @@ counts, coverage equality, first mismatch, offset and input hashes.
 `intervals_equal` does not assert identical deadlines, loss placement under load,
 serialization, FIFO clamp, release order or hardware precision.
 
+## Actual scheduler replay and independent oracle
+
+```sh
+cargo build --locked --bin trace_replay
+python scripts/replay_trace.py normalized.json --source source.zip \
+  --runner target/debug/trace_replay --output replay-check.json
+```
+
+`trace_replay` is an offline HngBuffer executable. It reads one JSON request
+from stdin (`model`, optional `trace` profile, `packets` with unique nonzero
+`id`, `arrival_ns`, `length`) and emits actual scheduler records as a JSON array:
+`id`, ingress ordinal, service completion, deadline, release, clamp extra and
+late flag. It advances virtual time; it does not perform packet I/O or wire
+timestamping. Nonaccepted packets fail this no-drop diagnostic explicitly.
+
+The Python checker samples the converted profile at original received-packet
+times, runs the executable, and compares every emitted record with an independent
+`Fraction` service/deadline oracle. The oracle does not import Rust or call its
+selector/scheduling functions. It checks the lookup at rounded service completion
+and the global retained-deadline clamp. The default test traffic is nonqueueing,
+with 100 ns service and sufficient storage. Mismatches fail instead of becoming
+timing tolerances. Output includes clamp count/maximum and unexpected reordering.
+
+CI always runs converted synthetic downward-step replay. The measured-data test
+requires an external, unchanged figure-1 DL ZIP (not redistributed in CI):
+
+```sh
+REAL_GARCIA_ZIP=source.zip python -B -m unittest discover -s tests -p test_replay.py
+```
+
+That test executes the 38-49 s source window, checks more than 40,000 packets and
+requires an exercised downward-step clamp with zero unexpected reordering.
+Without that external input, only that measured-data test is explicitly skipped;
+the synthetic engine replay remains mandatory. Software replay is not G2.
+
 ## Late-run distribution comparison
 
 Both tools report `lateness` using the diagnostic from the source research

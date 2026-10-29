@@ -151,6 +151,8 @@ pub struct HngStats {
     pub storage_packets: u64,
     pub storage_high_water_packets: u64,
     pub admission_watermark_ns: u64,
+    pub ledger_watermark_ns: u64,
+    pub input_complete: bool,
     pub trace_loss_drops: u64,
     pub trace_loss_bytes: u64,
     pub trace_outage_drops: u64,
@@ -419,6 +421,7 @@ impl HngBuffer {
 
     /// Release Q on service completion, independently of propagation storage.
     fn release_q(&mut self, now_ns: u64) {
+        self.stats.ledger_watermark_ns = now_ns;
         let now = u128::from(now_ns) * u128::from(self.config.c_bps);
         while self.service.front().is_some_and(|s| s.finish <= now) {
             self.stats.q_bytes -= self.service.pop_front().unwrap().l2_bytes;
@@ -430,6 +433,9 @@ impl HngBuffer {
     }
     pub fn is_empty(&self) -> bool {
         self.len() == 0
+    }
+    pub fn has_backlog(&self) -> bool {
+        !self.is_empty() || !self.service.is_empty()
     }
     pub fn stats(&self) -> HngStats {
         self.stats
@@ -478,6 +484,14 @@ impl HngBuffer {
     }
     pub fn end_input(&mut self) {
         self.input_complete = true;
+        self.stats.input_complete = true;
+    }
+    pub fn drain_advance(&mut self, now_ns: u64) -> bool {
+        if !self.input_complete {
+            return false;
+        }
+        self.release_q(now_ns);
+        true
     }
     pub fn tx_policy(&self) -> TxPolicy {
         TxPolicy {

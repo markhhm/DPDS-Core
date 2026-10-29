@@ -414,7 +414,7 @@ pub unsafe extern "C" fn hng_engine_destroy(engine: *mut Engine) -> bool {
     if engine.is_null() {
         return true;
     }
-    if (*engine).lines.iter().any(|l| !l.buffer.is_empty()) {
+    if (*engine).lines.iter().any(|l| l.buffer.has_backlog()) {
         return false;
     }
     drop(Box::from_raw(engine));
@@ -486,4 +486,41 @@ pub unsafe extern "C" fn hng_engine_end_input(engine: *mut Engine) {
             l.buffer.end_input();
         }
     }
+}
+
+/// Payload custody and future model service events both count as backlog.
+/// # Safety
+/// Live Engine; caller serializes with all mutation.
+#[no_mangle]
+pub unsafe extern "C" fn hng_engine_has_backlog(engine: *const Engine) -> bool {
+    engine
+        .as_ref()
+        .is_some_and(|e| e.lines.iter().any(|l| l.buffer.has_backlog()))
+}
+
+/// Age service accounting only after all ingress has been processed and sealed.
+/// # Safety
+/// Live exclusive Engine; caller uses the same monotonic run clock.
+#[no_mangle]
+pub unsafe extern "C" fn hng_engine_drain_advance(engine: *mut Engine, now_ns: u64) -> bool {
+    let Some(e) = engine.as_mut() else {
+        return false;
+    };
+    e.lines.iter_mut().all(|l| l.buffer.drain_advance(now_ns))
+}
+
+/// Explicit invalidating abort after all payloads are extracted. Snapshot Q first.
+/// # Safety
+/// Engine is NULL or exclusively owned; caller records forced abort and outstanding
+/// q_bytes per line before destroying the retained service ledger.
+#[no_mangle]
+pub unsafe extern "C" fn hng_engine_abort_destroy(engine: *mut Engine) -> bool {
+    if engine.is_null() {
+        return true;
+    }
+    if (*engine).lines.iter().any(|l| !l.buffer.is_empty()) {
+        return false;
+    }
+    drop(Box::from_raw(engine));
+    true
 }

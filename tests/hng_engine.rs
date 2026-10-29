@@ -82,6 +82,14 @@ fn ffi_rejects_outside_frame_envelope_and_preserves_pointer_custody() {
         assert!(hng_engine_pop(engine, 0, 100, u64::MAX, out.as_mut_ptr()));
         assert_eq!(out.assume_init().packet_ptr, ptr);
         assert!(!hng_engine_pop(engine, 0, 100, u64::MAX, out.as_mut_ptr()));
+        assert!(!hng_engine_destroy(engine));
+        assert!(hng_engine_has_backlog(engine));
+        assert!(!hng_engine_drain_advance(engine, 100));
+        hng_engine_end_input(engine);
+        assert!(hng_engine_drain_advance(engine, 99));
+        assert!(hng_engine_has_backlog(engine));
+        assert!(hng_engine_drain_advance(engine, 100));
+        assert!(!hng_engine_has_backlog(engine));
         assert!(hng_engine_destroy(engine));
         assert!(hng_engine_destroy(std::ptr::null_mut()));
     }

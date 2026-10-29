@@ -174,8 +174,29 @@ Complete duplicate delivery and delivery of model-intended drops fail the data
 path; an identity absent from ingress is a structural invalidity. Missing
 observation evidence remains inconclusive.
 
-Complete CLI migration, calibrated before/after joins, offer/terminal identity
-reconciliation, shared-port TX-attempt audit and actual virtual-PMD observation
-faults remain open. The uncompleted host exporter work is preserved outside the
-public repository until it can be tested against the streaming contract. There
-is still no full M2 or physical G2 signoff.
+Host `f823b9e` adds exact rational clock-map and raw/corrected OWD validation.
+Its software debug custody replay checks offer ordinals, terminal identity,
+dispatch item ordinals, consumed prefixes, zero/partial/full TX acceptance and
+cable/LEO gate bypass on a shared egress. These components pass 25 focused
+tests. Full-history replay is explicitly limited to software full-mode fixtures;
+it refuses normal streaming and physical scope. Database handles close after
+replay and lookups. The complete host check and pre-push check both passed
+16/16 tests with no skips.
+
+Host `6019877` connects the reference CLI to sealed v1 input/output. Its output
+has independent envelope ordinals and a final v1 summary containing source
+hashes/counts, per-port end counts, per-line outcomes and Q-ledger resource
+peaks. Invalid raw input preserves its ingress ordinal without consuming valid
+line service; raw port/VLAN mapping is independently checked. An intact input
+rejected by the host is not reclassified as an intended model loss. A missing
+1% of records is detected through sequence continuity alone, without a supplied
+drop counter; partial output cannot acquire a complete seal. The bounded draft
+reporter still accepts the reference output during migration. Focused reference,
+report and protocol checks passed 54 tests; the complete host check passed
+16/16 with no skips.
+
+Final manifest/report migration, complete online before/after joins, online
+offer/terminal and shared-port custody reconciliation, plus actual virtual-PMD
+observation faults remain open. The uncompleted host exporter work is preserved
+outside the public repository until it can be tested against the streaming
+contract. There is still no full M2 or physical G2 signoff.

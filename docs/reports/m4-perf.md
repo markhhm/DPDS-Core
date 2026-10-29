@@ -247,6 +247,139 @@ The software runs here never exceeded `pending_peak=9`; net_ring does not model
 NIC backpressure, so this is not evidence for any value. The constant is not
 changed in this branch.
 
+## Round 2 (after review)
+
+Sections 1-5 above describe round 1. This section supersedes them where they
+differ. Load average on the machine was 3-7 during these runs.
+
+### Commits
+
+DPDS-Core: `c9470fd` (64-byte stored entry, prefaulted prefetching ring,
+derived counters, 128-byte `Line` alignment, burst offer). DPDS: `be2855a`
+(handles taken before launch), `95f8c32` (departures, counters, pre-M4 golden),
+`3c6cfea` (independent RX directions), `e025346` (production fixture,
+concurrent owners), `b6f851c` (burst admission, frontier alignment),
+`481624e` (calculator), `10a1f6d` (TX pending 1024).
+
+### Fixes from review
+
+- Line handles are taken by `host_load` on the main lcore; owners copy only
+  their own. `host_take_line_handles` fails and invalidates after
+  `host_mark_launched`, which the split test checks.
+- `tests/split.c`: every owner gets one call per tick, then is drained at the
+  same time, so both layouts see the same call schedule. Per egress, records
+  (sequence, VLAN, length, release, deadline, departure tick) and the worker
+  counters `sent`, `emulator_drops`, `tx_ring_drops` match. The single-owner
+  output matches a golden digest (`tests/split-golden.csv`) produced by the
+  pre-M4 scheduler, DPDS `d75f4fc`, on the same input.
+- RX: a full owner ring skips only that port (`ring_full_skips`), so one
+  congested direction no longer stalls the other (`rx_split` test).
+
+### Gate: p50 <= 60 ns per owner, owners concurrent on pinned cores
+
+**Still missed for concurrent owners.** Two fixtures:
+
+- small: 100 Gbit/s arrivals, t = 1 / 1.5 ms, delta = 2 ms; about 10,000
+  packets in flight per owner;
+- production-sized: t = 142 ms, delta = 320 ms, p = 0.01, Q = 50 ms; arrivals
+  at 25 Gbit/s per direction so about 294,000 packets in flight per owner
+  (a quarter of 100G; 640,000 mbufs, about 2.1 GB resident). Full scale did not
+  fit beside other work on this machine.
+
+Quietest run (01:25, CPUs 2/6/10, 4 samples each), the numbers in the commits:
+
+| Fixture | single owner | port 0 owner | port 1 owner |
+|---|---:|---:|---:|
+| production-sized | 60.1 | 63.4 | 65.2 |
+| small | 56.9 | 63.6 | 60.0 |
+
+Re-run after the restart, load average 6-7, CPU sets 2/6/10, 4/8/12, 2/10/14,
+6 samples each (p50 median, range; p99 median):
+
+| Fixture | single owner | port 0 owner | port 1 owner |
+|---|---|---|---|
+| production-sized | 70.5 (59.5-85.7); 210.7 | 64.9 (61.8-91.0); 114.5 | 81.8 (63.8-214.7); 200.8 |
+| small | 58.4 (55.4-73.2); 108.4 | 65.9 (54.2-79.5); 108.5 | 67.1 (57.2-169.4); 155.8 |
+
+Rerun:
+
+```sh
+cd build
+python3 ../perf/sched_bench.py ./hng-sched-bench --cpus 2,6,10 -- -r 3
+python3 ../perf/sched_bench.py ./hng-sched-bench --cpus 2,6,10 --memory 1800 -- \
+  -c sched_bench_prod.json -g 493440 -n 3000000 -w 470000000 -m 640000 -r 3
+```
+
+Each attempt on the production-sized fixture, medians of 4 runs with
+concurrent owners (noise is several ns):
+
+| Attempt | single | per owner | Kept |
+|---|---:|---:|---|
+| starting point | 109 | 109-113 | |
+| frontier: one cache line per port | 106 | 107-108 | yes |
+| prefetch input mbufs | 109 | 106-108 | no |
+| 64-byte stored FIFO entry (was 88) | 98 | 99-101 | yes |
+| touch reserved storage at startup (page faults had been in the timed path) | 70 | 76-78 | yes |
+| burst admission, one core call per burst | 70 | 75 | yes |
+| 128-byte `Line` alignment | 69 | 74 | yes |
+| own ring, prefetch 8 slots ahead at both ends | 57 | 65-72 | yes |
+| 128-byte alignment of bench per-owner state | 59 | 62-63 | yes (bench) |
+| derive dequeued, storage_packets and wire counters in `stats()` | 60 | 63-65 | yes |
+
+What limits it: a cycle split (rdtsc, not committed) puts classify at about
+5 ns, core admission at about 30 ns and merge plus dequeue at about 30 ns per
+packet on the production-sized fixture. Two owners at once are 3-8 ns slower
+each than one owner alone, which points at the shared 32 MiB L3 and memory
+(each owner's working set is about 19 MB of FIFO entries plus cold mbufs).
+4 KiB pages (TLB misses) and the shared, loaded WSL2 host add noise of the
+same size as the remaining gap. Not tried: transparent huge pages as the
+default (optional `HNG_BENCH_THP=1` and `GLIBC_TUNABLES=glibc.malloc.hugetlb=1`
+hints exist; one run gave mixed results), a larger prefetch distance, and an
+isolated fixed-frequency core.
+
+### Core and host rate after round 2 (loaded machine)
+
+Core microbenchmark, fixed p50 32.37 / 33.54 ns, trace 49.37 / 49.46 ns;
+u128 arithmetic 3.40 ns against 1.51-1.61 ns (difference 1.79-1.88 ns). The
+core benchmark now includes the startup prefault outside the timed region.
+net_ring rate, 1518 bytes: 9.30 M pps total with one scheduler, 9.16 M with
+one per ingress port; both conserved, `pending_peak` 8-9.
+
+### Memory and calculator
+
+Core metadata per slot is now 160 bytes (2 x 64-byte entries + 32-byte
+ledger entry); with the 2496-byte mbuf stride that is 2656 bytes per slot.
+
+`hng-pool-calc` now defaults to 5 lcores, models trace lines
+(`--trace-max-delay-ms`, `--trace-max-hold-ms`: largest delay plus longest
+outage hold), and marks the 2 MiB page result *unverified*. `--verify` builds
+the pool with the production `host_create_pool` and compares the calculated
+object count with the mempool's own size and populated count.
+
+| Case (per NUMA node; both nodes) | Objects | GiB |
+|---|---:|---:|
+| roadmap: 100G, t=142, delta=320 ms, Q=50 ms, p=0.01 or 0.10 | 4,164,452 | 10.335; 20.670 |
+| cable and LEO with those parameters | 8,321,256 | 20.652; 41.304 |
+| trace, illustrative max delay 60 ms + hold 30 ms | 1,148,887 | 2.859; 5.717 |
+
+Mean occupancy (*estimate*, not a bound): 3.927 GiB at p = 0.01 and 4.505 GiB
+at p = 0.10 per node. Verify (4 KiB pages): objects 14,868 calculated and in
+the mempool on both ports; mempool bytes error 0.000; core metadata error
+1.0%; total error 0.03% (gate 5%: PASS).
+
+### TX pending
+
+Applied: `TX_PENDING_PER_LINE = 1024` and 1024 TX descriptors per port
+(about 126 us at 8.127 Mpps, *estimate*). `tx_pending` checks that a blocked
+port holds exactly 1024 packets per line before invalidating, and that ports
+request 1024 descriptors. The larger reserves need `-m 256` under `--no-huge`.
+Not tested on a NIC.
+
+### Skipped
+
+Item 8 (one RX and TX lcore per direction, JSON fixture SPDX notes) was not
+started. Trace-mode `--verify` is not supported (fixed mode only).
+
 ## WSL2-only and untested
 
 - Every timing number is from WSL2 on a shared desktop CPU with other load,

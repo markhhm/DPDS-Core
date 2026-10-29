@@ -2,8 +2,23 @@
 
 # P1 hardware request: delay accuracy and throughput acceptance
 
-Date: 2026-10-29. Delivery deadline: 2026-10-30 15:00, Asia/Taipei.
+Date: 2026-10-29. Revised after the M5a review.
 Status: requirements and measurement plan only; no hardware accessed or configured.
+
+## Equipment to prepare
+
+This is the **estimated starting bill of materials**, with the primary observation scheme below. Existing compatible equipment can replace the named candidates after qualification.
+
+| Resource | Primary request | Alternative / evidence |
+|---|---|---|
+| Machines | Three: one DUT, one dual-port traffic generator/receiver (TG), one passive observer | Two machines if the TG hardware-TX timestamp backup qualifies; no existing testbed allocation |
+| DUT NIC | One CX-6 Dx `MCX623106AN-CDAT`, 2×100GbE, Gen4 x16 | One CX-5 Ex `MCX516A-CDAT`, or two single-port CX-4 `MCX455A-ECAT` on independent Gen3 x16 paths; vendor specifications in section 3 |
+| TG NIC | One `MCX623106AN-CDAT`, 2×100GbE, Gen4 x16 | Same bus budget as DUT; hardware timestamp backup specifically needs CX-6 Dx or a qualified equivalent |
+| Observer NICs | Two `MCX623106AN-CDAT`, each 2×100GbE, each Gen4 x16; one card per direction, its two RX ports observing before/after DUT | Four simultaneous 100G monitor streams. No subtraction across the two cards' raw clocks; same-card clock sharing and capture capacity must be verified |
+| Links | Two 100GbE optical data links with two passive duplex single-mode taps, four unaggregated monitor outputs, compatible 100G-LR4 optics (four endpoint plus four monitor RX modules), OS2 LC patch leads; start with 3 m leads, final lengths and split/loss budget checked by supplier | For the two-machine backup: two 100GbE QSFP28-compatible DACs, 3 m, or AOCs of registered length. PCIe generation applies to the cards/slots, not cables. Sealed DAC/AOC links cannot accept the primary passive optical taps |
+| RAM / CPU | DUT: ≥64 GiB RAM, 32 GiB local hugepages, ≥16 physical cores with eight reserved for data plane. TG: initially ≥64 GiB / ≥16 cores. Observer: initially ≥128 GiB / ≥16 cores, split by its two NIC nodes | Estimates, not throughput guarantees. TG/observer have no long-delay store but need bounded join/capture buffers; M4 and timestamp-on bypass determine final needs |
+| Working storage | DUT: 100 GB free for builds/logs. TG/observer: ≥1 TB free each if retaining full events, with schema-based write-rate sizing; streaming-only: initially 100 GB free each | Estimates: streaming retains bounded mismatches, summaries and sampled timing, not full payload/event history. Exact M2 record widths may require more than 1 TB |
+| Observation | Primary: four passive monitor streams into two same-clock RX pairs. Backup: TG CX-6 Dx hardware TX-port/RX timestamps | Both target ≤10 µs combined uncertainty; neither has been measured. Section 8.1 defines equipment, calibration and rejection conditions |
 
 ## 1. Request and two-stage boundary
 
@@ -41,6 +56,8 @@ The supplied machine, slot topology, NIC ordering part number (OPN), firmware, t
 
 **Code:** the host records relative software RX time from `host_now_ns()` and TX-submit lateness. These are not per-packet wire timestamps. The complete independent observation/export/pairing path required in section 8 is still a software-stage deliverable.
 
+**Estimate and M4 requirement:** bidirectional 100G at 1,542 line bytes is `2 × 8.106 Mpps`, leaving only **61.68 ns/packet** for the current single scheduler. A 60 ns median microbenchmark has almost no aggregate-rate margin, even before tails and host work. The eight-core reservation assumes a subsequent **one-scheduler-per-direction** layout, each owning that direction's cable and LEO states and ordered egress. Those states are independent; this split preserves each shared C/Q. It is not implemented by the inspected revision. M4 must measure end-to-end and tail costs and may revise the core count/layout; do not present the single-owner 60 ns target as proof of bidirectional 100G readiness.
+
 **Code:** the small default configuration is not a 100G configuration. Pool sizing uses configured storage and the adjusted RX/TX descriptor counts, and startup reports object footprint. It does not reserve 32 GiB automatically. Defaults include 256 RX/TX descriptors, 1,024-entry handoff rings and 256 pending TX packets per line; none is a demonstrated 100G setting.
 
 **Code:** retry defaults to 1 s, with 5 s limits on actual TX hold/shutdown. Long outages and drain intervals need software validation and, where necessary, configuration or implementation changes before hardware use. Resource timeout must not silently become trace loss.
@@ -76,7 +93,7 @@ A dual-port Gen3 x16 card can support a single-direction 100G candidate test or 
 
 | Item | Requirement or check | Evidence |
 |---|---|---|
-| Physical cores | Reserve eight data-plane cores plus control/observer cores; recommend at least 16 total. Do not count SMT threads as physical cores. Current host layouts use only 2–4 lcores; unused reservations do not create extra scheduler workers | Decision, estimate and code |
+| Physical cores | Reserve eight data-plane cores plus control/observer cores; recommend at least 16 total. This assumes M4 later provides one scheduler per direction, with independent RX/TX work as needed. Current host layouts use only 2–4 lcores; M4 measurements may change the reservation. Do not count SMT threads as physical cores | Decision, estimate and code; aggregate-rate budget in section 2 |
 | CPU frequency | Prefer a server CPU sustaining roughly 2.5–3 GHz or higher; record frequency, throttling and power policy | Estimate; no measured minimum CPU model or GHz |
 | NUMA placement | Keep both data ports, host lcores, mbuf pools and Rust metadata on the same node where possible; place observer work on separate cores with adequate local memory bandwidth | [DPDK NUMA guidance][numa]; placement is an estimate |
 | Cross-node alternative | Local RX pools do not prevent remote egress DMA through the other node. Register this as a different topology and report its cost | Test design; acceptance of supplied topology TBD |
@@ -92,6 +109,10 @@ A dual-port Gen3 x16 card can support a single-direction 100G candidate test or 
 For `142 ms base delay + 320 ms late increment + illustrative 50 ms Q residence`, a conservative bidirectional bound is **8.301 million packets**. At an illustrative **2,304 bytes per mbuf object**, that is **19.125 GB = 17.812 GiB**, before pool-private metadata/alignment, Rust allocations, rings, caches and observation. This is the preliminary P0-style envelope, not the measured stride of the current build. M4 must check actual allocation and startup footprint against its calculator before hardware qualification.
 
 **Estimate limit:** 32 GiB does not guarantee zero storage loss for small packets at 100G and long delay. Minimum 64-byte L2 frames occupy 84 line bytes; the same bidirectional 512 ms bound is 152.381 million packets, or **351.086 GB** at 2,304 bytes/object alone. Start 100G qualification with registered MTU-1500 synthetic traffic; report a separate achievable-rate and memory envelope for ACK/small-packet mixes. A 64-byte minimum accounting setting does not make a large-packet pool calculation safe for all traffic.
+
+**Usable planning boundary (estimate):** reserve 20% of the 32 GiB hugetlb budget for pool overhead, descriptors/rings and sizing error; use at most `floor(0.8 × 32 GiB / 2304) = 11,930,464` long-delay mbufs. With equal directional budgets and all packets conservatively held for `142+320=462 ms`, the ceiling is **12.912 Mpps/direction**. At 100G this requires packet-count-weighted mean line size ≥**968.11 B**, or mean L2 including FCS ≥**948.11 B**. With the illustrative additional 50 ms Q residence, use **11.651 Mpps/direction**, mean line ≥**1072.89 B** / L2 ≥**1052.89 B**. At minimum 84 line bytes, the latter is only **7.829 Gbit/s/direction**. Without the 20% reserve, the absolute mbuf-only 462 ms ceiling is 16.140 Mpps/direction / 774.49 line bytes; it is not an operational limit.
+
+Use the general bound `pps_dir <= floor((hugetlb_bytes - measured_reserves)/measured_stride)/(2 × maximum_residence_seconds)`. These are steady-rate planning limits, not guarantees from a mean alone: a small-packet burst must also fit the maximum packet count in every residence-time window, and each line's configured pool share must suffice. Rust allocations remain outside this budget. Recompute with M4's actual stride, registered Q/outage residence and burst envelope before M7.
 
 **Design requirement:** include every line/direction's Q and storage limits. Trace storage uses the registered maximum trace delay and outage hold bound, not the fixed-mode 462 ms delay bound. Resolve long-outage capacity/drain issues in the software stage. Report Q both in L2 bytes and drain time at C; include VLAN, padding and FCS, excluding preamble/IFG. The final shallow/deep Q values are **TBD**, not fixed to the illustrative 50 ms.
 
@@ -116,7 +137,7 @@ For `142 ms base delay + 320 ms late increment + illustrative 50 ms Q residence`
 
 ## 6. Number of machines and topology
 
-**Test design:** the preferred setup is two machines: the DUT and one dual-port traffic generator/receiver (TG). Two directional traffic streams can run simultaneously.
+**Test design:** the traffic path uses two machines: DUT and one dual-port traffic generator/receiver (TG). The primary timestamp scheme adds a third, passive observer machine. Two directional traffic streams run simultaneously.
 
 ```text
 TG port A  ── 100G link ── DUT port 0
@@ -129,6 +150,8 @@ A TX → DUT 0 RX → engine → DUT 1 TX → B RX
 B TX → DUT 1 RX → engine → DUT 0 TX → A RX
 Management uses separate interfaces on both machines.
 ```
+
+The primary scheme taps both links: the observer's first card receives the forward ingress/egress copies, and its second receives the reverse ingress/egress copies. Each card measures one OWD using only its own validated clock domain. Do not aggregate two 100G monitor streams into a single 100G observer port.
 
 | Arrangement | What it can validate | What it cannot establish | Evidence |
 |---|---|---|---|
@@ -155,7 +178,7 @@ Management uses separate interfaces on both machines.
 | Faults and lifecycle | Zero/partial/full fake TX returns, exhausted rings/pools, pending late packets at stop, trace drops with outstanding service entries | No leaks/double frees/duplicate TX; packet/byte/mbuf conservation and explicit layer counters |
 | Trace conversion, M3 | Provenance/hash and registered delay, direction, loss/outage semantics; compare the same source segment against the Stage 2 reference | Independent deadline agreement, downward-step order preserved; no unregistered trace splicing; only redistributable or synthetic fixtures in the repository |
 | Observation tools, M2 | Known-time fixtures, identity loss/duplicates, clock errors, ordinary packet swap, storage loss, injected 0.2 ms delay and 1% observer-event loss | Detect each fault; uncertainty/missing evidence gives INCONCLUSIVE. At least 10^6 events compared with an independent model. A production-computed deadline is not an independent oracle |
-| Capacity/performance preparation, M4 | Measure allocation/stride, validate the pool calculator, reassess TX pending/retry/hold limits; fixed/trace scheduling microbenchmarks | Roadmap targets: calculator within 5% of small allocations and scheduler p50 ≤60 ns/packet. These are workstation preparation targets, not physical throughput evidence |
+| Capacity/performance preparation, M4 | Measure allocation/stride, validate the pool calculator, reassess TX pending/retry/hold limits; fixed/trace scheduling microbenchmarks | Roadmap targets: calculator within 5% of small allocations and scheduler p50 ≤60 ns/packet. Check the 61.68 ns aggregate budget and proposed per-direction split separately; these workstation targets are not physical throughput evidence |
 
 **Gate A evidence:** host/core SHA, Cargo.lock, DPDK/PMD versions, logs for the necessary paths of all four virtual devices, trace/config/fixture hashes and conservation results. Complete M1–M4 and the applicable OS1–OS6 checks. Unimplemented, skipped or permission-blocked work cannot be reported as a passed path; resolve it before claiming this complete gate.
 
@@ -170,6 +193,10 @@ Management uses separate interfaces on both machines.
 **Test design:** retain `(run, direction, line, packet_id, ingress_ts, egress_ts, clock_id)` and compute **`OWD_i = egress_ts_i - ingress_ts_i`**. Declare whether each point is software observation, NIC completion, port-wire time or external RX tap. Same host or working NTP does not prove that two raw NIC clocks are directly comparable.
 
 **Code compatibility:** the inspected Stage 1 probe carries a network-order 64-bit sequence, 32-bit magic and one-byte selected-late flag; its metrics pair `(flow, seq)` and reject duplicate/unmatched identities or changed flags. Preserve that logical identity/flag contract in M2 fixtures. P1 adds full ingress/oracle evidence for Q and trace behavior; it must not copy the reference runner's deployment addresses, interface names or fixed load into public defaults.
+
+**Primary scheme — passive RX/RX observation (design choice):** prepare the third host, two dual-port CX-6 Dx `MCX623106AN-CDAT` cards and optical taps listed above. Pair both forward observation points on one card and both reverse points on the other. Validate the two ports' hardware clock relation and RX timestamp point; record the actual PHC/counter identity. A shared oscillator/PHC reduces relative clock uncertainty but does not remove unequal tap/receiver delays. Calibrate with bypass and swapped monitor paths before/after the run at both target loads, then bound offset, drift, timestamp granularity and load-dependent error. The target is **≤10 µs per OWD pair**, not a vendor guarantee. A missing bound or monitor loss prevents qualification. Two directions need not share a global clock for their separate OWDs; mapping to engine event time still needs its own calibrated uncertainty.
+
+**Backup — hardware-timestamped TG (design choice):** use one dual-port CX-6 Dx `MCX623106AN-CDAT` on the TG, with the two DAC/AOC links and no tap host. Capture actual TX-port timestamps and opposite-port RX timestamps in a validated common clock for selected UDP packets. NVIDIA's documented Linux `tx_port_ts` path supports CX-6 Dx and later and eligible UDP/PTP packets; this is distinct from a DPDK launch-time request or CQE completion. The generator/collector integration and sampling coverage must qualify at load; low-rate dedicated probes alone cannot replace the required traffic sample. Calibrate the known cable/path offsets with bypass, retain raw results, and require the same ≤10 µs bound. **Bypass does not turn an unmeasured software send time into a per-packet TX-wire timestamp.** If the generator cannot export the required hardware timestamps, this backup cannot sign off physical accuracy. [Timestamp specification][timestamps]
 
 | Timestamp method | Use and limits | Evidence |
 |---|---|---|

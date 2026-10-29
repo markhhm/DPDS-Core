@@ -22,8 +22,8 @@ with a Gen4 x16 adapter or two independent Gen3 x16 adapters, eight physical
 data-plane cores plus control/observer cores, and at least 64 GiB RAM including
 32 GiB of node-local hugepages. Keep NICs, host cores and packet memory on the
 same NUMA node where possible. These are workload-dependent estimates; the
-inspected host supports at most four lcores, and additional cores do not
-automatically increase throughput. Neither ConnectX-4 nor ConnectX-5 is
+inspected host supports at most four lcores; the reservation anticipates a
+future scheduler per direction, subject to performance validation. Neither ConnectX-4 nor ConnectX-5 is
 mandatory.
 
 The candidate host stack is Ubuntu Server 24.04 LTS with kernel 6.8 and DPDK

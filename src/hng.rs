@@ -165,6 +165,7 @@ pub struct HngStats {
 
 /// FIFO entry: one 64-byte cache line. L2 and wire bytes follow from packet_bytes.
 #[derive(Copy, Clone)]
+#[repr(align(64))]
 struct Stored {
     packet_ptr: *mut c_void,
     ingress_seq: u64,
@@ -698,4 +699,14 @@ pub fn selection_word(seed: u64, seq: u64) -> u64 {
     x = (x ^ (x >> 30)).wrapping_mul(0xbf58476d1ce4e5b9);
     x = (x ^ (x >> 27)).wrapping_mul(0x94d049bb133111eb);
     x ^ (x >> 31)
+}
+
+#[cfg(test)]
+mod layout_tests {
+    /// Each FIFO entry occupies exactly one cache line, never two.
+    #[test]
+    fn stored_entry_is_one_aligned_cache_line() {
+        assert_eq!(std::mem::size_of::<super::Stored>(), 64);
+        assert_eq!(std::mem::align_of::<super::Stored>(), 64);
+    }
 }

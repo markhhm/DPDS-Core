@@ -1,51 +1,154 @@
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
-# P1 hardware request: delay accuracy and throughput acceptance
+# P1 accuracy and throughput acceptance on the existing testbed
 
-Date: 2026-10-29. Revised after the M5a review.
+Date: 2026-10-29. Testbed edition; replaces the earlier new-hardware request.
 Status: requirements and measurement plan only; no hardware accessed or configured.
 
-## Equipment to prepare
+## 1. Decision and boundary
 
-This is the **estimated starting bill of materials**, with the primary observation scheme below. Existing compatible equipment can replace the named candidates after qualification.
+**Decision (project owner, 2026-10-29):** no new or borrowed hardware. P1 uses only the equipment that already exists in the shared P4 testbed. The earlier three-machine/two-machine proposal is kept only as [Appendix A](#appendix-a-future-hardware-not-available).
 
-| Resource | Primary request | Alternative / evidence |
-|---|---|---|
-| Machines | Three: one DUT, one dual-port traffic generator/receiver (TG), one passive observer | Two machines if the TG hardware-TX timestamp backup qualifies; no existing testbed allocation |
-| DUT NIC | One CX-6 Dx `MCX623106AN-CDAT`, 2×100GbE, Gen4 x16 | One CX-5 Ex `MCX516A-CDAT`, or two single-port CX-4 `MCX455A-ECAT` on independent Gen3 x16 paths; vendor specifications in section 3 |
-| TG NIC | One `MCX623106AN-CDAT`, 2×100GbE, Gen4 x16 | Same bus budget as DUT; hardware timestamp backup specifically needs CX-6 Dx or a qualified equivalent |
-| Observer NICs | Two `MCX623106AN-CDAT`, each 2×100GbE, each Gen4 x16; one card per direction, its two RX ports observing before/after DUT | Four simultaneous 100G monitor streams. No subtraction across the two cards' raw clocks; same-card clock sharing and capture capacity must be verified |
-| Links | Two 100GbE optical data links with two passive duplex single-mode taps, four unaggregated monitor outputs, compatible 100G-LR4 optics (four endpoint plus four monitor RX modules), OS2 LC patch leads; start with 3 m leads, final lengths and split/loss budget checked by supplier | For the two-machine backup: two 100GbE QSFP28-compatible DACs, 3 m, or AOCs of registered length. PCIe generation applies to the cards/slots, not cables. Sealed DAC/AOC links cannot accept the primary passive optical taps |
-| RAM / CPU | DUT: ≥64 GiB RAM, 32 GiB local hugepages, ≥16 physical cores with eight reserved for data plane. TG: initially ≥64 GiB / ≥16 cores. Observer: initially ≥128 GiB / ≥16 cores, split by its two NIC nodes | Estimates, not throughput guarantees. TG/observer have no long-delay store but need bounded join/capture buffers; M4 and timestamp-on bypass determine final needs |
-| Working storage | Default streaming oracle: about 7 GB per bidirectional 100G ten-minute cell (sampled full records, histograms, capped mismatches), plus 12 GB per optional 2 s debug window; DUT: 100 GB free for builds/logs | Estimates from [HNG-OBSERVER.md](HNG-OBSERVER.md) section 10. Full per-packet recording (280.36 B/pkt, 2.727 TB per ten minutes, 3.6 TB reserve per cell) is a capped debug mode, not the default |
-| Observation | Primary: four passive monitor streams into two same-clock RX pairs. Backup: TG CX-6 Dx hardware TX-port/RX timestamps | Both target ≤10 µs combined uncertainty; neither has been measured. Section 8.1 defines equipment, calibration and rejection conditions |
-
-## 1. Request and two-stage boundary
-
-**Complete functional and correctness tests on the development workstation using DPDK virtual devices. Then use a separate physical machine only for delay accuracy and throughput acceptance.** P1 must not occupy the existing Stage 2 testbed before its main scenarios finish. This supersedes the equipment-sharing assumption in [HNG-DESIGN.md](HNG-DESIGN.md) section 9; its engine contract and G2 thresholds remain applicable.
+Functional and correctness work (M1–M4) stays on the development workstation with DPDK virtual devices (section 13). The testbed is used only for delay-accuracy and throughput acceptance. Its engine contract and G2 thresholds come from [HNG-DESIGN.md](HNG-DESIGN.md) and [HNG-OBSERVER.md](HNG-OBSERVER.md).
 
 Evidence labels used throughout:
 
-- **Decision:** the project instructions of 2026-10-29, including the 20:00 split between software testing and hardware acceptance, and roadmap revision `4b07aea`, M1–M7 and OS1–OS6.
+- **Decision:** a project-owner decision of 2026-10-29, or roadmap revision `4b07aea`, M1–M7 and OS1–OS6.
+- **Testbed record:** the testbed owner's private inventory, copied here only at role level (no names, addresses or accounts).
 - **Code:** behavior read at a pinned source revision, not a performance measurement.
 - **Specification:** linked primary vendor or DPDK documentation.
 - **Estimate:** calculation or engineering recommendation that has not been measured.
-- **Test design:** a proposed procedure derived from the HNG contract; final run parameters must be registered.
-- **TBD:** information or evidence required before qualification.
+- ***unverified***: a capability that no opened document confirms; section 9 lists the check.
+- **TBD / open question:** information required before qualification (section 8).
 
-| Item | Requested configuration and limits | Evidence |
+## 2. Testbed equipment (role level)
+
+| Role | What the testbed record shows | Relevance to P1 |
 |---|---|---|
-| Device under test (DUT) | One dedicated Linux x86-64 bare-metal machine; two exclusive 100GbE data ports and separate management networking. Start with 10G offered traffic, then 100G | Decision; bare metal is an estimate to reduce scheduling interference |
-| NIC and PCIe | Prefer one existing dual-100G Gen4 x16 adapter; alternatively two single-100G adapters, each with an independent Gen3 x16 path, preferably on the same NUMA node | Specification and estimate, section 3 |
-| CPU | Recommend at least 16 physical cores overall. Reserve eight physical data-plane cores on the NIC node, plus separate control/observer cores. The current host uses at most four lcores | Decision: roadmap M5a reserves eight data-plane cores; estimate: 16 total; code: current layout limit |
-| RAM and hugepages | At least 64 GiB RAM, preferably 64 GiB available on the selected node. Initially reserve 32 GiB hugetlb: 32 × 1 GiB pages, or 16,384 × 2 MiB pages | Decision and estimate; workload bounds and accounting in section 4 |
-| Software candidate | Ubuntu Server 24.04 LTS with GA 6.8 kernel; pin DPDK 26.03. Qualify and freeze the exact kernel, verbs/provider and firmware combination | Estimate and code; not an already validated platform, section 5 |
-| Traffic and observation | A separate dual-100G generator/receiver, or equivalent tester, with calibrated ingress/egress timestamps in one clock domain | Test design; a DUT with null PMD alone cannot qualify physical 100G |
-| Access | SSH keys and an ordinary account; administrator support for scoped sudo, hugepages, affinity, drivers and maintenance/reboots | Estimate; management subnet, account and access window are TBD |
+| Host A (Proxmox hypervisor) | Two single-port ConnectX-4 100GbE adapters (CX455A family; one `MCX455A-ECAT`-class, one OEM part), each in its own PCIe Gen3 x16 slot, one on each NUMA node; 64 logical CPUs; also 10G ports. Adapter A1 is cabled 100G directly to Tofino switch 1. Adapter A0 is cabled 100G to the aggregation switch; that link is administratively down on both sides. The host also runs other teams' VMs | DUT candidate: most cores and the only host with two 100G adapters |
+| Host B (Proxmox hypervisor) | One ConnectX-4 100GbE adapter, cabled directly to Tofino switch 2; 32 logical CPUs | Not on Tofino switch 1; reachable from it only through the aggregation switch |
+| Host C (Proxmox hypervisor) | One ConnectX-4 `MCX455A-ECAT` 100GbE adapter (firmware 12.28.2302), cabled directly to Tofino switch 1; 6 physical cores. After each VM start its PCIe link trained at 2.5 GT/s (RDMA about 27.5 Gbit/s) until a root-port retrain restored 8 GT/s (about 98 Gbit/s) | Traffic generator / sink candidate on the same switch as the DUT |
+| Tofino switch 1 and 2 | Wedge100BF-32X (Tofino 1), 100G ports, RS FEC on the host links; each has one 100G uplink to the aggregation switch. No direct link between the two Tofino switches | In-path switch; Tofino switch 1 can provide one hardware clock for both DUT boundaries |
+| Aggregation switch | 100G Broadcom-based SONiC switch joining the two Tofino uplinks, the host A0 link and 10G breakouts | Only path for a second DUT port (variant B) |
 
-The supplied machine, slot topology, NIC ordering part number (OPN), firmware, traffic source and observer are **TBD**. A source-supported NIC capability is not evidence that this implementation meets G2.
+**Testbed record:** a 2026-10-28 RDMA write test between host C and host A1 through Tofino switch 1 reached 97.95 Gbit/s. This shows that the link and PCIe path can carry about 100G; it is not packet-rate or emulator evidence. All hosts use NTP within the lab; no PTP grandmaster or GPS reference appears in the testbed records.
 
-## 2. Source baseline and actual implementation limits
+## 3. Placement: emulator, generator and sink (a)
+
+**Variant A (primary, no cabling or link change).** DUT = host A, using only adapter A1 as a one-port loop. Traffic generator and sink = host C. Tofino switch 1 forwards by VLAN.
+
+```text
+host C (TG + sink)                Tofino switch 1                 host A (DUT)
+  CX-4 port  ── 100G ──  port P_TG          port P_DUT  ── 100G ──  CX-4 A1
+                           TG -> P_DUT       stamp "before" on egress to DUT
+                           P_DUT -> TG       stamp "after" on ingress from DUT
+                                         DUT: RX A1 -> engine (cable/LEO by VLAN) -> TX A1
+```
+
+- The DUT receives on A1, schedules by VLAN line, and transmits back on A1 with the registered egress VLAN. Each egress has one ingress source (the same port), so the HNG-OBSERVER v1 direction rule holds; register it as a physical one-port loop topology.
+- PCIe: Gen3 x16 gives `8 GT/s × 16 × 128/130 ÷ 8 = 15.754 GB/s` per direction before overhead ([PCIe encoding][pcie]), about 126 Gbit/s. That covers 100G RX writes plus 100G TX reads on one adapter (*estimate*), but not two 100G directions.
+- Capacity: one 100G wire direction into the DUT and one out. The modeled "forward" and "reverse" lines can both be exercised, but they share that 100G.
+- Host B is not used at 100G. It can serve as a low-rate control or spare host.
+
+**Variant B (needs the testbed owner to enable the down 100G link).** DUT uses both adapters: in on A1 (from Tofino switch 1), out on A0 (to the aggregation switch, then the Tofino switch 1 uplink, then host C). This exercises a real two-port, cross-NUMA DUT path, still one 100G direction at a time, because host C has one 100G port and the Tofino switch 1 uplink carries one 100G stream. Both observation points remain on Tofino switch 1 (egress to A1, ingress from the uplink), so they share one clock, but the aggregation switch transit sits inside the measured OWD and must be bounded (section 5). Use variant B only after variant A passes.
+
+## 4. Timestamps and clocks (b)
+
+| Source | Capability (evidence) | Use |
+|---|---|---|
+| Tofino switch 1 data-plane timestamps | A P4 program can read the ingress MAC timestamp and an egress-pipeline timestamp on one switch clock. Exact timestamp points, resolution and whether the loaded SDE/NOS exposes them: ***unverified*** | **Primary OWD source.** `before` = egress timestamp toward P_DUT, `after` = ingress MAC timestamp from P_DUT. The P4 program overwrites a reserved, fixed-length field of the test packet (length unchanged), so the sink receives both values with every packet |
+| ConnectX-4 RX hardware timestamps (host C, host A) | DPDK 26.03 mlx5 lists ConnectX-4, firmware ≥12.21.1000, as the minimum for RX timestamp offload ([mlx5 guide][mlx5]); the testbed card reports firmware 12.28.2302. Default clock is a free-running counter; whether the real-time clock mode (`REAL_TIME_CLOCK_ENABLE`) exists on CX-4: ***unverified*** | Secondary: RX/RX pairs on host C's single adapter clock when Tofino switch 1 mirrors before/after copies to it (10G stage only, section 5). Also sink-side diagnostics |
+| ConnectX-4 TX timestamps | None at wire level. DPDK TX send scheduling needs ConnectX-6 Dx or later ([mlx5 guide][mlx5]); NVIDIA documents TX-port timestamps for ConnectX-6 Dx and later ([timestamps][timestamps]). CX-4 completion timestamps are not wire times | Not usable for OWD. The TG's send time is never one end of a gate measurement |
+| DUT software time (TSC) | RX observation and TX-submit bracket in the engine clock E (code) | Diagnostic residence only; never a substitute for an observed egress |
+
+**Clock synchronization.** The primary method needs no synchronization between hosts: both ends of every OWD come from one Tofino counter. It still needs:
+
+1. **Rate calibration of the Tofino clock.** A rate error ε turns into an OWD error of `OWD × ε`. At the 462 ms (142 + 320 ms) example, ±100 ppm (*estimate*, a typical oscillator tolerance class, not a measured value) gives 46.2 µs, above the 10 µs budget; 20 ppm gives 9.24 µs. Calibrate against an NTP-disciplined host clock over a ≥1 h baseline: with ≤1 ms error at each end (*estimate*), `2 ms / 3600 s = 0.56 ppm`, so 0.26 µs at 462 ms and 0.28 µs at 512 ms. Also confirm that no software steps or slews the Tofino counter during a run.
+2. **A coarse mapping from the Tofino clock O to the engine clock E**, registered with its bound, to assign samples to fill/steady/transition/drain windows and for diagnostics. NTP-level (ms) accuracy is enough for this if packets within the mapping bound of a window edge are reported as boundary samples, not silently moved.
+3. For the secondary mirror method, both copies use host C's one adapter clock, so no host-to-host synchronization is needed either. Host-to-host PTP over the Tofino switches is not documented in the testbed and is not required; any OWD that subtracts two hosts' clocks is not accepted.
+
+## 5. Verifying the accuracy targets without a passive tap (c)
+
+Targets (unchanged, [HNG-DESIGN.md](HNG-DESIGN.md) section 9 and [HNG-OBSERVER.md](HNG-OBSERVER.md) section 7): per direction, line and required cell, `median(|OWD_i − expected_i|) ≤ 0.1 ms` and `p99(|OWD_i − expected_i|) ≤ 0.5 ms`; combined observation uncertainty `u ≤ 10 µs`; a gate passes only if its interval upper bound plus u is below the threshold.
+
+Method:
+
+1. **Observation boundary.** Declare the boundary as Tofino switch 1's port facing the DUT. Measured OWD then includes the two short cable runs and the DUT NIC/PHY, which belong to the DUT path and are not subtracted.
+2. **Stamp-point calibration.** If the Tofino SDE supports a port loopback on P_DUT, send registered frames through it with no DUT and measure the `before`→`after` offset at each frame size and at the target loads. If no loopback is available, do not subtract anything; carry the worst-case stamp-point offset in u.
+3. **Rate calibration** as in section 4, before and after each session; a step or drift outside the bound invalidates the affected cells.
+4. **Cross-check at the 10G stage.** Configure a mirror of P_DUT in both directions to host C and timestamp both copies with host C's CX-4 RX clock (the "calibrated mirror" alternative in HNG-OBSERVER section 2.1). Three streams of 10G offered load fit on host C's 100G port; at 100G they do not (300G on one 100G port), so this cross-check exists only at 10G. Require the two methods to agree within their combined bounds.
+5. **Full-flow evidence.** The sink on host C receives every packet with its identity and both Tofino timestamps; the streaming oracle (HNG-OBSERVER section 10.1) checks order, loss and Q/trace decisions on all packets and keeps the 1/1024 main sample in full.
+6. **Variant B only:** bound the aggregation switch transit by a bypass run through the same path with the DUT forwarding at zero configured delay, and report it; do not subtract the DUT's own zero-delay residence.
+
+Error budget per OWD pair (all *estimate*, to be replaced by measured bounds in `calibration.json`):
+
+| Term | Bound | Basis |
+|---|---:|---|
+| Stamp-point offset, egress-pipeline vs ingress-MAC, uncorrected | 2 µs | Includes 123.4 ns serialization of 1,542 line bytes at 100G (`1542 × 8 / 100e9`); pipeline/MAC latency ***unverified*** |
+| Clock rate after calibration, up to 512 ms OWD | 0.3 µs | Section 4 arithmetic; longer trace delays scale linearly |
+| Quantization | 0.1 µs | Assumes ns-scale counter resolution, ***unverified*** |
+| Load-dependent MAC/FIFO delay at the stamp points | 2 µs | Measured at target loads in step 2 |
+| Residual/unknown | 2 µs | Reserve |
+| **Total** | **6.4 µs** | ≤ 10 µs target; 6.4% of the 0.1 ms median threshold, 1.3% of the 0.5 ms p99 threshold |
+
+Variant B adds the aggregation switch transit term; the mirror cross-check adds the mirror-queue difference between the two copies. Both must be measured before use.
+
+## 6. Claims this testbed cannot support (d)
+
+- **Bidirectional 100G line rate** (100G in each direction at once). Host C and the DUT path each have one 100G port; variant A carries at most 100G into and 100G out of the DUT in total. The two modeled directions can only share that 100G.
+- **The 200G-aggregate PCIe/NUMA case.** Variant A uses one Gen3 x16 adapter; variant B is one direction at a time.
+- **An independent passive observer.** The Tofino switch is independent of the DUT but is an active, in-path device that also forwards the generator traffic. Report "switch-hardware timestamps at the DUT-facing port", not passive tap observation.
+- **Nanosecond-level or sub-microsecond accuracy.** The budget is microsecond-scale (6.4 µs estimate, ≤10 µs target).
+- **Generator-side OWD.** CX-4 has no TX wire timestamp, so no OWD from generator send to sink receive.
+- **Bare-metal results.** All three hosts are hypervisors shared with other workloads; the DUT runs in a VM with PCI passthrough (section 15). Results are for that registered VM topology.
+- **100G with the full 462–512 ms long-delay storage, until hugepages are reserved.** One 100G direction at 462 ms needs `8.106e6 × 0.462 = 3.745 M` mbufs, `× 2304 B = 8.63 GB`; at 512 ms 9.56 GB. Host A's DUT-adapter node yielded only 2,587 of 4,096 requested 2 MiB pages (5.05 GiB) after compaction in the testbed record. A boot-time reservation by the testbed owner is needed first.
+- **100G generator capacity is not established.** Host C has 6 physical cores; whether it can generate, receive and record 100G of 1,542-byte frames (8.106 Mpps) is *unverified* until its bypass run passes. If it cannot, `R_valid` is limited by the generator and is reported as such.
+- Unchanged from the design: no small-packet 100G claim, no overload of C = 100G from one 100G ingress, and no UTC-traceable absolute time.
+
+## 7. Storage (recomputed with the streaming-oracle default)
+
+Default retention is the streaming oracle of [HNG-OBSERVER.md](HNG-OBSERVER.md) section 10.1: online statistics, histograms, capped mismatch records and full records only for the 1/1024 main sample (524 B per sampled packet worst case). On this testbed (one 100G direction, 1,542 line bytes, 600 s):
+
+- Samples: `8.106355e6 / 1024 × 600 = 4.750e6`; records `4.750e6 × 524 B = 2.489 GB`; plus the 0.280 GB mismatch cap = 2.769 GB; with 25% margin `3.46 GB`. **Provision 4 GB per ten-minute 100G cell.**
+- 10G stage: `0.249 + 0.280 = 0.529 GB`, `× 1.25 = 0.66 GB`; provision 1 GB per cell. The mismatch cap dominates.
+- Optional debug window (full per-packet recording, at most 2 s per cell): ≤12 GB each at the bidirectional-100G reference load, so also ≤12 GB here.
+- Total = 4 GB × (100G cells) + 1 GB × (10G cells) + 12 GB × (debug windows), on the host that runs the oracle (host C in variant A), plus about 100 GB on the DUT for builds and logs (*estimate*).
+
+Full per-packet recording for a whole cell would be `280.36 B × 8.106e6/s × 600 s = 1.364 TB` per one-direction ten-minute cell; it is not planned.
+
+## 8. Scheduling and open questions (e)
+
+- The testbed belongs to and is operated by another team (the testbed owner). Only one operator works on it at a time; P1 sessions never connect to it.
+- **P1 gets no testbed time until the Stage 2 main scenario finishes.** The testbed owner schedules M5 and later after that; the earliest window is estimated at **mid-to-late November 2026** (*estimate*).
+- The Tofino switches are also used under a separate loan arrangement; any P4 program swap on Tofino switch 1 must fit that arrangement.
+
+Open questions for the testbed owner:
+
+1. Free disk space on host A and host C (and in the VMs that would run the DUT and the oracle); section 7 gives the need per cell.
+2. RAM per NUMA node on host A, and whether a boot-time reservation of node-local 1 GiB or 2 MiB hugepages (32 GiB requested, section 11) is possible on the DUT-adapter node.
+3. Whether the DUT may run bare metal on host A or only as a VM with PCI passthrough, and which cores can be reserved (other teams' VMs share the host).
+4. Whether a P1 timestamping P4 program, or the Stage 2 program if it already exposes these timestamps, may run on Tofino switch 1 during P1 windows; and whether SPAN mirroring of the DUT-facing port is allowed for the 10G cross-check.
+5. Whether the Tofino SDE/NOS exposes ingress MAC and egress timestamps and a port loopback mode (section 9, item 7).
+6. For variant B: whether the down 100G link from host A's second adapter to the aggregation switch may be enabled.
+7. Whether host C's PCIe retrain after VM start is reliable at every session start.
+8. Window length per session and how many sessions; the matrix of section 14 is sized to fit them.
+
+## 9. Pre-flight checklist (read-only, for the testbed owner)
+
+All checks only read state; none changes configuration. Replace `<...>` with local values; keep the results in the private deployment manifest.
+
+1. Timestamp capability per DUT and TG port: `ethtool -T <port>` (hardware receive/transmit, PHC index).
+2. Adapter identity and firmware: `ethtool -i <port>`, `devlink dev info <pci>`; real-time clock setting if present: `mlxconfig -d <pci> query` (look for `REAL_TIME_CLOCK_ENABLE`).
+3. PCIe link: `lspci -vv -s <pci>` (`LnkCap`, `LnkSta`; expect 8 GT/s x16, watch for 2.5 GT/s).
+4. NUMA and memory: `cat /sys/bus/pci/devices/<pci>/numa_node`, `numactl -H`, `grep -i huge /proc/meminfo`, per-node `free_hugepages`.
+5. CPU and disk: `lscpu`, `df -h <data path>` on DUT and oracle hosts and VMs.
+6. Link: `ethtool <port>` (speed, FEC), a baseline of `ethtool -S <port>` counters.
+7. Tofino switch 1: NOS/SDE version; whether the P4 toolchain exposes ingress MAC and egress timestamps and port loopback; current mirror sessions (read-only listing).
+8. Clocks: `chronyc tracking` or `timedatectl timesync-status` on the DUT and TG hosts; whether `ptp4l`/`phc2sys` run.
+9. Software: `uname -r`, installed rdma-core and DPDK versions.
+10. Hypervisor: which VM currently holds each 100G adapter by PCI passthrough (read the VM configuration only).
+
+## 10. Source baseline and implementation limits
 
 | Source | Pinned revision and inspected material | Consequence |
 |---|---|---|
@@ -54,7 +157,7 @@ The supplied machine, slot topology, NIC ordering part number (OPN), firmware, t
 | [DPDS-Core][core] | `9531a95e15b13801e117d2a0441f8d26d8d16ee4`; Cargo metadata, README and HNG engine/trace/buffer sources | **Code:** Rust scheduling is independent of DPDK and physical NICs. Two packet FIFOs and a service ledger reserve capacity through the ordinary allocator; mbuf hugepages are not the whole memory requirement |
 | Stage 1 target-check reference (not public; location in the private deployment manifest) | `de035a63f5d0135ee70b0bceb27d5051897b85a1`; target-check document/runner and `C2/harness/target_rate_metrics.py`, `target_rate_check.py`, fetched and read without execution | **Code:** capture before/after the emulator in one VM clock domain, pair by flow and sequence, compare with t plus the selected-late increment. This revision is awaiting a second review; pin it as a method reference, not an approved hardware result |
 
-**Code:** the host records relative software RX time from `host_now_ns()` and TX-submit lateness. These are not per-packet wire timestamps. The complete independent observation/export/pairing path required in section 8 is still a software-stage deliverable.
+**Code:** the host records relative software RX time from `host_now_ns()` and TX-submit lateness. These are not per-packet wire timestamps. The complete independent observation/export/pairing path required in section 14 is still a software-stage deliverable.
 
 **Estimate and M4 requirement:** bidirectional 100G at 1,542 line bytes is `2 × 8.106 Mpps`, leaving only **61.68 ns/packet** for the current single scheduler. A 60 ns median microbenchmark has almost no aggregate-rate margin, even before tails and host work. The eight-core reservation assumes a subsequent **one-scheduler-per-direction** layout, each owning that direction's cable and LEO states and ordered egress. Those states are independent; this split preserves each shared C/Q. It is not implemented by the inspected revision. M4 must measure end-to-end and tail costs and may revise the core count/layout; do not present the single-owner 60 ns target as proof of bidirectional 100G readiness.
 
@@ -62,38 +165,13 @@ The supplied machine, slot topology, NIC ordering part number (OPN), firmware, t
 
 **Code:** retry defaults to 1 s, with 5 s limits on actual TX hold/shutdown. Long outages and drain intervals need software validation and, where necessary, configuration or implementation changes before hardware use. Resource timeout must not silently become trace loss.
 
-## 3. NIC model, rate, count and PCIe
+## 11. DUT CPU, NUMA, memory and hugepages
 
-### 3.1 Acceptable candidates per DUT
-
-| Candidate | Count and interfaces | Qualification condition | Evidence |
-|---|---|---|---|
-| ConnectX-6 Dx `MCX623106AN-CDAT` | One adapter, 2 × 100GbE, QSFP56, PCIe Gen4 x16 | Preferred candidate if available; negotiate actual Gen4 x16 on the selected node | [NVIDIA specification][cx6]; preference is an estimate |
-| ConnectX-5 Ex EN `MCX516A-CDAT` | One adapter, 2 × 100GbE, QSFP28, PCIe Gen4 x16 | Viable alternative. Ordinary CX-5 `MCX516A-CCAT` is Gen3 x16. Verify the exact host/card combination; the manual's Gen4 capability is not certification of this machine | [NVIDIA specification][cx5]; platform combination TBD |
-| ConnectX-4 `MCX455A-ECAT` | Two adapters, each 1 × 100GbE, QSFP28 and Gen3 x16 | Independent full-width paths without an undersized shared upstream link; prefer both on one node. `MCX455A-FCAT` is not this 100G model | [NVIDIA specification][cx4]; topology requirement is an estimate |
-| Another DPDK-supported 100GbE NIC | Two ports in total, with adequate bus bandwidth | Qualify its PMD, VLAN retention, buffer behavior and observation method | **Code:** generic ethdev host interface; exact OPN and compatibility TBD |
-
-**Code and estimate:** neither CX-4 nor CX-5 is mandatory. The engine has no ConnectX dependency. These mlx5 candidates have specific vendor and DPDK documentation that can be checked. CX-4 Lx must not be confused with the 100G CX-4 models. CX-6 Dx is an option, not a purchase mandate.
-
-**Specification and TBD:** use Ethernet mode and two compatible 100GbE links. Record connector/module or DAC/AOC type, length, FEC, MTU and negotiated speed. A 100G link can carry 10G offered traffic; the first acceptance step does not require a 10G physical link mode.
-
-### 3.2 Bus budget
-
-**Estimate:** PCIe Gen3 x16 provides `8 GT/s × 16 × 128/130 ÷ 8 = 15.754 GB/s` in each PCIe direction after encoding, before transaction/descriptor overhead. Gen4 x16 provides `31.508 GB/s` on the same basis. [Encoding specification][pcie]
-
-An inline emulator forwarding two simultaneous 100G network directions needs approximately **25 GB/s of PCIe writes and 25 GB/s of PCIe reads**. Payload traffic is slightly below line rate, but a shared Gen3 x16 bus is still insufficient. Its theoretical symmetric limit is approximately 63G per network direction before further overhead. Adding the two PCIe directions does not remove either bottleneck.
-
-A dual-port Gen3 x16 card can support a single-direction 100G candidate test or bidirectional 10G, but must not be requested as a complete bidirectional 100G configuration. Two independent single-port Gen3 x16 cards distribute approximately 100G RX and 100G TX to each card. Check upstream topology, not just slot shape.
-
-**Specification and estimate:** a Gen4 adapter in a Gen3 slot, or one negotiated at x8, loses the assumed bus margin. Record actual speed and width at handover.
-
-**Design limit:** cable and LEO share the two physical ports through VLAN classification; they do not require four DUT ports. Each physical egress still has only 100G capacity. Cable 100G plus LEO 10G cannot both fit there. P1 tests delay accuracy and shared-Q stress with C below ingress capacity, such as C=80–90G; it does not claim sustained overload of C=100G from a single 100G ingress.
-
-## 4. CPU, NUMA, memory and hugepages
+**Testbed note:** on host A the DUT adapter A1 sits on one NUMA node; place the data-plane cores, pools and Rust metadata there. Today that node does not provide 32 GiB of free hugepages (section 6); the figures below are the requirement to agree with the testbed owner.
 
 | Item | Requirement or check | Evidence |
 |---|---|---|
-| Physical cores | Reserve eight data-plane cores plus control/observer cores; recommend at least 16 total. This assumes M4 later provides one scheduler per direction, with independent RX/TX work as needed. Current host layouts use only 2–4 lcores; M4 measurements may change the reservation. Do not count SMT threads as physical cores | Decision, estimate and code; aggregate-rate budget in section 2 |
+| Physical cores | Reserve eight data-plane cores plus control/observer cores; recommend at least 16 total. This assumes M4 later provides one scheduler per direction, with independent RX/TX work as needed. Current host layouts use only 2–4 lcores; M4 measurements may change the reservation. Do not count SMT threads as physical cores | Decision, estimate and code; aggregate-rate budget in section 10 |
 | CPU frequency | Prefer a server CPU sustaining roughly 2.5–3 GHz or higher; record frequency, throttling and power policy | Estimate; no measured minimum CPU model or GHz |
 | NUMA placement | Keep both data ports, host lcores, mbuf pools and Rust metadata on the same node where possible; place observer work on separate cores with adequate local memory bandwidth | [DPDK NUMA guidance][numa]; placement is an estimate |
 | Cross-node alternative | Local RX pools do not prevent remote egress DMA through the other node. Register this as a different topology and report its cost | Test design; acceptance of supplied topology TBD |
@@ -116,9 +194,9 @@ Use the general bound `pps_dir <= floor((hugetlb_bytes - measured_reserves)/meas
 
 **Design requirement:** include every line/direction's Q and storage limits. Trace storage uses the registered maximum trace delay and outage hold bound, not the fixed-mode 462 ms delay bound. Resolve long-outage capacity/drain issues in the software stage. Report Q both in L2 bytes and drain time at C; include VLAN, padding and FCS, excluding preamble/IFG. The final shallow/deep Q values are **TBD**, not fixed to the illustrative 50 ms.
 
-**Estimate:** one DMA write and read per packet already approaches 50 GB/s of memory traffic for bidirectional 100G. One additional full packet copy adds roughly another 50 GB/s. Observation traffic must be budgeted too. Storage needs depend on the streaming-oracle versus full-event-retention choice in section 8; recording every payload is not required.
+**Estimate:** one DMA write and read per packet already approaches 50 GB/s of memory traffic for bidirectional 100G. One additional full packet copy adds roughly another 50 GB/s. Observation traffic must be budgeted too. Storage needs depend on the streaming-oracle versus full-event-retention choice; the default is streaming (section 7), and recording every payload is not required.
 
-## 5. OS, kernel, DPDK and driver constraints
+## 12. OS, kernel, DPDK and driver constraints
 
 | Item | Constraint or candidate | Evidence |
 |---|---|---|
@@ -135,35 +213,7 @@ Use the general bound `pps_dir <= floor((hugetlb_bytes - measured_reserves)/meas
 
 **TBD:** freeze an exact supported kernel/rdma-core or vendor-stack/firmware combination for the supplied OPN. Driver-family support and a tested platform are different evidence. This request claims no on-machine validation of either.
 
-## 6. Number of machines and topology
-
-**Test design:** the traffic path uses two machines: DUT and one dual-port traffic generator/receiver (TG). The primary timestamp scheme adds a third, passive observer machine. Two directional traffic streams run simultaneously.
-
-```text
-TG port A  ── 100G link ── DUT port 0
-                              │
-                     cable / LEO by VLAN
-                              │
-TG port B  ── 100G link ── DUT port 1
-
-A TX → DUT 0 RX → engine → DUT 1 TX → B RX
-B TX → DUT 1 RX → engine → DUT 0 TX → A RX
-Management uses separate interfaces on both machines.
-```
-
-The primary scheme taps both links: the observer's first card receives the forward ingress/egress copies, and its second receives the reverse ingress/egress copies. Each card measures one OWD using only its own validated clock domain. Do not aggregate two 100G monitor streams into a single 100G observer port.
-
-| Arrangement | What it can validate | What it cannot establish | Evidence |
-|---|---|---|---|
-| Software workstation, fake clock and net_null/net_ring/pcap/af_packet | Model, ABI, VLAN mapping, trace, order, drop attribution, ownership and drain | Physical NIC/PCIe/NUMA accuracy or 100G throughput; a virtual link-speed indication is not measurement | Decision and code; PMD sources in section 7 |
-| One DUT with its two forwarding ports cabled together | NIC/link smoke or controlled loopback with a dedicated harness | Complete external offered/delivered traffic and OWD; direct forwarding loops may just recirculate packets | Estimate |
-| One machine with four physical ports: two DUT, two TG | Physical link exercise with separate process/port/core/pool ownership | Independence from shared CPU, DRAM and PCIe contention; observer calibration is still required | Estimate; needs more hardware than a single dual-port adapter |
-| **DUT plus dual-port TG/receiver** | Independent load, two links, bidirectional counts and external observation | A TG software send timestamp is not automatically its wire TX timestamp | Recommended test design; bypass capacity and timestamps must be qualified |
-| DUT plus hardware tester or common-clock tap observer | OWD and throughput at declared, calibrated boundaries | Accuracy without evidence for the exact instrument, clock, timestamp point and target load | Specification TBD and test design |
-
-**Estimate and TBD:** if only the DUT is supplied, an independent TG/tester outside the reserved testbed is still needed. Its NIC/PCIe must also sustain 200G aggregate TX and 200G aggregate RX; one dual-port Gen3 x16 adapter cannot be presumed adequate. Qualify TG bypass first so its ceiling is not attributed to the DUT.
-
-## 7. Stage A: software gate before physical hardware
+## 13. Stage A: software gate before physical hardware
 
 **Decision:** M1–M4 functional development, correctness fixes, trace conversion and observation-tool tests stay on the development workstation. Hardware is for accuracy and throughput qualification after this gate.
 
@@ -184,33 +234,11 @@ The primary scheme taps both links: the observer's first card receives the forwa
 
 **Code status:** the inspected host suite has injected-TX, real-mbuf/ring and null-layout tests; its README treats pcap replay and hardware checks as separate work. That does not prove all required net_ring/pcap/af_packet/observer paths have passed. This documentation task did not rerun or sign off those suites.
 
-## 8. Stage B: accuracy and throughput acceptance
+## 14. Stage B: qualification sequence and thresholds
 
-### 8.1 Same-clock method consistent with Stage 1
+### 14.1 Qualification sequence
 
-**Code/record:** Stage 1 pairs a packet observed at emulator ingress and egress within one clock domain. Retain that principle; do not subtract unsynchronized endpoint clocks or assume kernel tcpdump sees all DPDK traffic simply because a kernel netdev remains present.
-
-**Test design:** retain `(run, direction, line, packet_id, ingress_ts, egress_ts, clock_id)` and compute **`OWD_i = egress_ts_i - ingress_ts_i`**. Declare whether each point is software observation, NIC completion, port-wire time or external RX tap. Same host or working NTP does not prove that two raw NIC clocks are directly comparable.
-
-**Code compatibility:** the inspected Stage 1 probe carries a network-order 64-bit sequence, 32-bit magic and one-byte selected-late flag; its metrics pair `(flow, seq)` and reject duplicate/unmatched identities or changed flags. Preserve that logical identity/flag contract in M2 fixtures. P1 adds full ingress/oracle evidence for Q and trace behavior; it must not copy the reference runner's deployment addresses, interface names or fixed load into public defaults.
-
-**Primary scheme — passive RX/RX observation (design choice):** prepare the third host, two dual-port CX-6 Dx `MCX623106AN-CDAT` cards and optical taps listed above. Pair both forward observation points on one card and both reverse points on the other. Validate the two ports' hardware clock relation and RX timestamp point; record the actual PHC/counter identity. A shared oscillator/PHC reduces relative clock uncertainty but does not remove unequal tap/receiver delays. Calibrate with bypass and swapped monitor paths before/after the run at both target loads, then bound offset, drift, timestamp granularity and load-dependent error. The target is **≤10 µs per OWD pair**, not a vendor guarantee. A missing bound or monitor loss prevents qualification. Two directions need not share a global clock for their separate OWDs; mapping to engine event time still needs its own calibrated uncertainty.
-
-**Backup — hardware-timestamped TG (design choice):** use one dual-port CX-6 Dx `MCX623106AN-CDAT` on the TG, with the two DAC/AOC links and no tap host. Capture actual TX-port timestamps and opposite-port RX timestamps in a validated common clock for selected UDP packets. NVIDIA's documented Linux `tx_port_ts` path supports CX-6 Dx and later and eligible UDP/PTP packets; this is distinct from a DPDK launch-time request or CQE completion. The generator/collector integration and sampling coverage must qualify at load; low-rate dedicated probes alone cannot replace the required traffic sample. Calibrate the known cable/path offsets with bypass, retain raw results, and require the same ≤10 µs bound. **Bypass does not turn an unmeasured software send time into a per-packet TX-wire timestamp.** If the generator cannot export the required hardware timestamps, this backup cannot sign off physical accuracy. [Timestamp specification][timestamps]
-
-| Timestamp method | Use and limits | Evidence |
-|---|---|---|
-| DUT software RX observation and successful TX-submit bracket, using one monotonic/TSC clock | Internal residence diagnostic corresponding to software observation boundaries. Validate epoch/frequency and cross-core consistency; retain before/after-submit uncertainty. Never substitute scheduled deadline for observed egress | Code and test design; complete export/pairer still required |
-| External ingress and egress observations in one calibrated clock domain | Preferred physical OWD acceptance. For example, tap both boundaries into a common-clock RX observer; measure tap/path offsets, drift, loss and load-dependent tails | Test design; exact observer/tap/clock TBD |
-| One dual-port TG's hardware TX/RX timestamps | Acceptable only with a validated common clock and explicit TX timestamp point; distinguish cable/TG boundary effects from internal DUT residence | Specification TBD and test design; older TX CQE timestamps are not automatically wire timestamps |
-
-**Test design:** RX-read to TX-submit excludes some NIC RX backlog, TX queues and wire serialization. Passing that diagnostic alone cannot sign off physical OWD at 100G. Without calibrated external or hardware timestamp evidence, report internal diagnostics and throughput with accuracy **INCONCLUSIVE**.
-
-**Specification:** NVIDIA distinguishes TX port timestamps from earlier CQE timestamps. Existence of nanosecond units, hardware timestamps or launch-time support does not mean this application implements them. [NVIDIA timestamp documentation][timestamps], [DPDK mlx5 guide][mlx5]
-
-### 8.2 Initial physical qualification sequence
-
-These are **test-design requirements for later execution**, not actions performed by this task.
+These are **test-design requirements for later execution**, not actions performed by this task. On this testbed, "both directions simultaneously" means both modeled directions sharing the one 100G DUT path (section 3); per-direction 100G is tested one direction at a time.
 
 1. Confirm Gate A, dedicated resources and access. Freeze software, firmware, topology, pool size and frame envelope. Record private environment values outside source/defaults.
 2. Qualify generator/receiver bypass and zero-added-delay observation at the target loads. Require zero bypass drops. Measure offset, drift, timestamp brackets and observer/oracle loss; roadmap M5 requires clock uncertainty **≤10 µs**. Do not fit away emulator tails after the run.
@@ -220,7 +248,7 @@ These are **test-design requirements for later execution**, not actions performe
 6. Only after all required 10G cells pass accuracy and validity, increase to **100G offered rate** with the same enabled observation, first registered MTU-1500 synthetic traffic, then separately bounded mixed-packet/multi-flow workloads. Repeat one-way and simultaneous two-way tests; C=80–90G is the stress example. No mandatory 40G stage.
 7. Report `R_valid`, the maximum rate satisfying accuracy and loss/order validity together. Throughput with failed accuracy is not usable 100G qualification.
 
-### 8.3 Thresholds and expected delay
+### 14.2 Thresholds and expected delay
 
 **Decision:** evaluate each direction, line and registered required cell separately.
 
@@ -230,7 +258,7 @@ These are **test-design requirements for later execution**, not actions performe
 | Tail error | `p99(abs(OWD_i - expected_i)) <= 0.5 ms`; not p99 of signed error |
 | Measurement validity | Clock uncertainty ≤10 µs and cannot change the verdict; unbounded missing samples/clock errors produce INCONCLUSIVE |
 | Loss/order validity | Zero delay-storage drops and zero unintended reordering. Report intended Q/trace loss separately. Non-model NIC/pool/TX loss prevents full acceptance |
-| Throughput | Per-direction offered/delivered L1, L2 and pps, plus L7 where applicable. Bidirectional 100G means 100G in each direction, not 100G aggregate |
+| Throughput | Per-direction offered/delivered L1, L2 and pps, plus L7 where applicable. Bidirectional 100G means 100G in each direction, not 100G aggregate; this testbed cannot show it (section 6) |
 
 **Test design:** without deliberate queueing, ordinary `expected=t`; selected-late `expected=t+δ`. Report both the overall distribution and ordinary/late groups. Define timestamp boundaries before testing and retain raw measurements. Additional egress serialization when late and ordinary packets collide **remains in G2 error**; also report that component separately, without moving the deadline.
 
@@ -240,19 +268,11 @@ For stress, an independent C/Q oracle supplies `expected_i=e_i-a_i+t+Iδ`, where
 
 **Code and test design:** retain Stage 1's PASS/FAIL/INVALID distinction: invalid evidence takes precedence within a row; an overall valid failing row gives FAIL, otherwise missing/invalid required rows give INVALID. P1's **INCONCLUSIVE** measurement state maps to **INVALID** in that compatible report, with explicit reasons; it never becomes PASS. The referenced target check has no intended shared C/Q and records that layer as not applicable, not a fabricated zero. P1 must supply real Q/trace counters and independent oracle evidence instead. The reference uses low-rate probes under concurrent load; P1's target-load and full-flow requirements still apply. Reconcile any changes from the pending Stage 1 second review before freezing the tooling.
 
-### 8.4 Observer cost and retained evidence
-
-**Test design:** use complete ingress events and a full receiver sequence checker. The independent oracle needs all input events, including packets later dropped by Q or trace; it computes service/deadlines itself. Timing export may use registered identity-hash sampling, with late/application oversampling reported separately. Timing samples alone cannot establish zero full-flow loss/reorder. Include sample counts and confidence intervals in the report.
-
-Retain arbitration/TX-attempt evidence for actual-time trace gating. Observer CPU, memory, rings and storage must be active during qualification. Capture-disabled throughput is a separate result.
-
-**Estimate:** bidirectional 100G with 1,542-byte line accounting and illustrative 64-byte ingress records alone produces approximately **1.038 GB/s, or 622.6 GB per 10 minutes**. The fuller [M2 observation budget](HNG-OBSERVER.md), including ingress, host offer, both external identity streams, dispatch and TX attempt evidence and paired timing, uses illustrative packed widths of 280.36 B per input packet totaling **4.545 GB/s, or 2.727 TB per ten-minute cell** (2.836 TB with the 10%-late stratum), before headers/reference outputs; fusing offer into ingress records gives 3.897 GB/s / 2.338 TB. That full volume is now a debug mode only (2 s windows, 12 GB each). The default streaming oracle persists main-sample full records, histograms and capped mismatches: about **7 GB per ten-minute cell** (HNG-OBSERVER section 10.1). Measure sustained write and processing capacity from the final encoding. These are data-volume estimates, not disk performance claims.
-
-## 9. Access, configuration and bring-up boundary
+## 15. Access, configuration and bring-up boundary
 
 | Item | Required arrangement | Evidence |
 |---|---|---|
-| SSH | Ordinary account with SSH key; administrator supplies address, port and VPN/jump-host procedure. Repository/package access or offline packages | Estimate; exact values TBD and kept private |
+| Operator | Only the testbed owner's operator works on the testbed, one session at a time; P1 development sessions never log in. P1 supplies builds, manifests and the section 9 checklist | Decision |
 | Management network | Separate management NIC/BMC and subnet; SSH does not traverse the emulated queue/outage path | Estimate; subnet assigned by the administrator |
 | Data network | Direct point-to-point L2 is sufficient. TG supplies configured VLANs; IP flows use an isolated experiment subnet | Estimate; VLAN IDs and IP ranges are parameters, not embedded defaults |
 | Root/sudo | Scoped administrator assistance for hugepages/mounts, memlock/device permissions, affinity/IRQ, drivers/firmware, timestamps and reboot. Ordinary account for build/analysis | Specification and estimate; direct root SSH/password is not required |
@@ -262,21 +282,13 @@ Retain arbitration/TX-attempt evidence for actual-time trace gating. Observer CP
 
 **Decision, OS1–OS6:** preserve Apache-2.0 and upstream notices, add SPDX to new files, keep scheduling independent of DPDK and document public interfaces. Machine PCI addresses, CPU lists, hugepage locations, credentials and network values belong in operator-supplied configuration/parameters. Examples must use documented placeholders or synthetic values. No site-specific deployment script or live configuration is added by this request.
 
-**Later bring-up checklist:** an authorized operator inventories the supplied topology and versions, reserves the node-local resources, confirms the required PMDs exist, checks link/FEC/MTU and counters, qualifies bypass and clock uncertainty, then freezes the manifest before section 8. Detailed commands must follow the selected driver and observer, with all machine values parameterized. This document provides the order and acceptance evidence; it does not claim that a runnable provisioning procedure exists for an unknown machine.
+**Later bring-up checklist:** an authorized operator inventories the supplied topology and versions, reserves the node-local resources, confirms the required PMDs exist, checks link/FEC/MTU and counters, qualifies bypass and clock uncertainty, then freezes the manifest before section 14. Detailed commands must follow the selected driver and observer, with all machine values parameterized. This document provides the order and acceptance evidence; it does not claim that a runnable provisioning procedure exists for an unknown machine.
 
 **Task boundary:** documentation only. No remote login, inventory, firmware/kernel/BIOS changes, hugepage allocation or hardware tests were performed. No new engine API, configuration schema or runtime dependency was introduced.
 
-## 10. Information needed before handover
+## Appendix A. Future hardware (not available)
 
-All entries below are **TBD**, not resources already provided:
-
-- DUT inventory and management access, kept in the private deployment manifest; bare metal or registered VM fallback.
-- Exact NIC OPN/PSID, port count/mode, firmware, negotiated PCIe width/speed and upstream NUMA topology; compatible links/modules.
-- Physical core reservation, SMT policy, DIMM distribution and local RAM available for 32 GiB hugepages plus ordinary allocations.
-- Frozen OS/kernel, DPDK 26.03, rdma-core/provider or compatible vendor stack, firmware and build toolchain.
-- Independent TG/tester outside the reserved testbed, with bypass capacity at each target rate.
-- Same-clock observation architecture, timestamp points, ≤10 µs uncertainty evidence and data retention plan.
-- Completed software gate, final trace/frame/Q/storage bounds, benchmark/calculator evidence and registered physical matrix.
+Kept for a possible later request; **none of this exists or is requested now.** Primary: three machines (DUT, dual-port traffic generator/receiver, passive observer) with ConnectX-6 Dx `MCX623106AN-CDAT` (2×100GbE, Gen4 x16) adapters ([spec][cx6]), two passive duplex single-mode optical taps on two 100G optical links, and two observer cards each pairing the before/after monitor streams of one direction on one clock. Backup: two machines, where the generator's CX-6 Dx provides hardware TX-port and RX timestamps ([timestamps][timestamps]). Alternative DUT adapters: ConnectX-5 Ex `MCX516A-CDAT` ([spec][cx5]) or two single-port ConnectX-4 `MCX455A-ECAT` on independent Gen3 x16 paths ([spec][cx4]). Sizing estimates were ≥64 GiB RAM / ≥16 cores for DUT and generator and ≥128 GiB for the observer. This would enable bidirectional 100G and passive observation, which section 6 excludes on the testbed.
 
 ## Sources
 
@@ -302,3 +314,4 @@ Vendor/DPDK sources checked on 2026-10-29. Pinned code, project decisions and ca
 [ring]: https://doc.dpdk.org/guides-26.03/nics/ring.html
 [pcap]: https://doc.dpdk.org/guides-26.03/nics/pcap.html
 [afpacket]: https://doc.dpdk.org/guides-26.03/nics/af_packet.html
+

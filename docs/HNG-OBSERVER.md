@@ -4,7 +4,7 @@
 
 Version: `hng-observer-v1`. Date: 2026-10-29. Status: implementation specification, not hardware acceptance evidence.
 
-This document makes [HNG-DESIGN.md](HNG-DESIGN.md) section 9 implementable and uses the primary/backup wiring in [MACHINE-REQUEST.md](MACHINE-REQUEST.md). It does not authorize hardware access. Functional work and fault injection run with virtual devices first; physical accuracy and throughput are qualified later.
+This document makes [HNG-DESIGN.md](HNG-DESIGN.md) section 9 implementable Its section 2.1 primary/backup wiring is the future-hardware design ([MACHINE-REQUEST.md](MACHINE-REQUEST.md) appendix A); the method for the existing testbed (switch-hardware timestamps at the DUT-facing port, one clock for both points) is in MACHINE-REQUEST sections 3–5 and uses the same event, calibration and report contract. It does not authorize hardware access. Functional work and fault injection run with virtual devices first; physical accuracy and throughput are qualified later.
 
 ## 1. Scope, sources and boundaries
 

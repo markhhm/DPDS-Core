@@ -133,12 +133,35 @@ pub struct LineInfo {
     pub always_late: bool,
 }
 
+// Owners update their lines per packet; 128-byte alignment keeps them apart.
+#[repr(align(128))]
 pub struct Line {
     pub info: LineInfo,
     pub(crate) buffer: HngBuffer,
 }
 pub struct Engine {
     pub lines: Vec<Line>,
+}
+
+/// `MemAvailable` from /proc/meminfo, or None where the kernel does not report it.
+fn mem_available_bytes() -> Option<u64> {
+    let info = fs::read_to_string("/proc/meminfo").ok()?;
+    let line = info.lines().find(|l| l.starts_with("MemAvailable:"))?;
+    let kib: u64 = line.split_whitespace().nth(1)?.parse().ok()?;
+    kib.checked_mul(1024)
+}
+
+/// Fail cleanly when the core reservation exceeds available memory. Under
+/// overcommit the allocation itself succeeds and prefaulting would end in an
+/// out-of-memory kill. The check is a snapshot: memory taken by other processes
+/// afterwards can still cause that.
+pub fn check_reservation(bytes: u64, available: Option<u64>) -> Result<(), String> {
+    match available {
+        Some(a) if bytes > a => Err(format!(
+            "core storage needs {bytes} bytes but only {a} bytes of memory are available"
+        )),
+        _ => Ok(()),
+    }
 }
 
 impl Engine {
@@ -151,6 +174,14 @@ impl Engine {
         if config.schema != "hng-v1" || config.lines.is_empty() || config.lines.len() > 4 {
             return Err("hng-v1 requires 1..4 VLAN line/direction instances".into());
         }
+        // Core storage is prefaulted at construction; refuse up front if it cannot fit.
+        let reserve = config.lines.iter().fold(0u64, |sum, c| {
+            sum.saturating_add(
+                (c.model.storage_capacity_packets as u64)
+                    .saturating_mul(crate::hng::slot_metadata_bytes() as u64),
+            )
+        });
+        check_reservation(reserve, mem_available_bytes())?;
         let mut lines: Vec<Line> = Vec::new();
         let mut names = Vec::new();
         for c in config.lines {
@@ -330,7 +361,7 @@ pub unsafe extern "C" fn hng_engine_peek(
     };
     match (buffer.ready(now_ns, watermark_ns), out.as_mut()) {
         (Some(p), Some(out)) => {
-            *out = *p;
+            *out = p;
             true
         }
         _ => false,
@@ -467,6 +498,22 @@ pub unsafe extern "C" fn hng_engine_min_delay(engine: *const Engine, line: usize
         .map_or(0, |l| l.buffer.min_delay_ns())
 }
 
+/// Core metadata bytes reserved per storage slot (both FIFOs and the ledger).
+#[no_mangle]
+pub extern "C" fn hng_slot_metadata_bytes() -> usize {
+    crate::hng::slot_metadata_bytes()
+}
+
+/// Core metadata bytes actually reserved by all lines; 0 for NULL.
+/// # Safety
+/// Engine is NULL or live; caller serializes with mutation.
+#[no_mangle]
+pub unsafe extern "C" fn hng_engine_metadata_bytes(engine: *const Engine) -> usize {
+    engine.as_ref().map_or(0, |e| {
+        e.lines.iter().map(|l| l.buffer.metadata_bytes()).sum()
+    })
+}
+
 /// # Safety
 /// Live Engine; caller serializes with mutation.
 #[no_mangle]
@@ -524,4 +571,248 @@ pub unsafe extern "C" fn hng_engine_abort_destroy(engine: *mut Engine) -> bool {
     }
     drop(Box::from_raw(engine));
     true
+}
+
+// Line handles. A scheduler owner may hold handles for a subset of lines and
+// use them while another owner uses handles for other lines of the same
+// Engine. Each handle must have one owner at a time, and no `hng_engine_*`
+// call may run while any handle is in use: those calls borrow the whole Engine.
+
+/// Handle for one line, or NULL for an invalid index. Take handles before
+/// launching owner threads; they stay valid until the Engine is destroyed.
+/// # Safety
+/// Engine is NULL or live and not in use by any other call.
+#[no_mangle]
+pub unsafe extern "C" fn hng_engine_line(engine: *mut Engine, line: usize) -> *mut Line {
+    match engine.as_mut() {
+        Some(e) if line < e.lines.len() => e.lines.as_mut_ptr().add(line),
+        _ => std::ptr::null_mut(),
+    }
+}
+
+/// Same contract as `hng_engine_offer`, for one line handle.
+/// # Safety
+/// Line is NULL or a live handle owned by the calling thread.
+#[no_mangle]
+pub unsafe extern "C" fn hng_line_offer(
+    line: *mut Line,
+    packet: *mut std::ffi::c_void,
+    bytes: u32,
+    arrival_ns: u64,
+    seq: u64,
+) -> PushResult {
+    line.as_mut().map_or(PushResult::InvalidInput, |l| {
+        l.buffer.push_with_seq(packet, bytes, arrival_ns, seq)
+    })
+}
+
+/// Like `hng_line_offer`. On ACCEPTED, also writes the stored record (release,
+/// deadline and sequence numbers never change after admission) to `out`
+/// unless it is NULL, so the host can annotate the packet while it is cached.
+/// # Safety
+/// Line is NULL or a live handle owned by the calling thread; out is NULL or writable.
+#[no_mangle]
+pub unsafe extern "C" fn hng_line_offer_record(
+    line: *mut Line,
+    packet: *mut std::ffi::c_void,
+    bytes: u32,
+    arrival_ns: u64,
+    seq: u64,
+    out: *mut HngPacket,
+) -> PushResult {
+    line.as_mut().map_or(PushResult::InvalidInput, |l| {
+        l.buffer
+            .push_with_record(packet, bytes, arrival_ns, seq, out.as_mut())
+    })
+}
+
+/// Same contract as `hng_engine_peek`.
+/// # Safety
+/// Line is NULL or a live handle owned by the calling thread; out is NULL or writable.
+#[no_mangle]
+pub unsafe extern "C" fn hng_line_peek(
+    line: *const Line,
+    now_ns: u64,
+    watermark_ns: u64,
+    out: *mut HngPacket,
+) -> bool {
+    match (
+        line.as_ref()
+            .and_then(|l| l.buffer.ready(now_ns, watermark_ns)),
+        out.as_mut(),
+    ) {
+        (Some(p), Some(out)) => {
+            *out = p;
+            true
+        }
+        _ => false,
+    }
+}
+
+/// Same contract as `hng_engine_pop`.
+/// # Safety
+/// Line is NULL or a live handle owned by the calling thread; out is NULL or writable.
+#[no_mangle]
+pub unsafe extern "C" fn hng_line_pop(
+    line: *mut Line,
+    now_ns: u64,
+    watermark_ns: u64,
+    out: *mut HngPacket,
+) -> bool {
+    match (
+        out.as_mut(),
+        line.as_mut()
+            .filter(|_| !out.is_null())
+            .and_then(|l| l.buffer.try_pop(now_ns, watermark_ns)),
+    ) {
+        (Some(out), Some(p)) => {
+            *out = p;
+            true
+        }
+        _ => false,
+    }
+}
+
+/// Same contract as `hng_engine_abort_pop`.
+/// # Safety
+/// Line is NULL or a live handle owned by the calling thread; out is NULL or writable.
+#[no_mangle]
+pub unsafe extern "C" fn hng_line_abort_pop(line: *mut Line, out: *mut HngPacket) -> bool {
+    match (
+        out.as_mut(),
+        line.as_mut()
+            .filter(|_| !out.is_null())
+            .and_then(|l| l.buffer.pop()),
+    ) {
+        (Some(out), Some(p)) => {
+            *out = p;
+            true
+        }
+        _ => false,
+    }
+}
+
+/// # Safety
+/// Line is NULL or a live handle owned by the calling thread; out is NULL or writable.
+#[no_mangle]
+pub unsafe extern "C" fn hng_line_stats(line: *const Line, out: *mut HngStats) -> bool {
+    match (line.as_ref(), out.as_mut()) {
+        (Some(l), Some(out)) => {
+            *out = l.buffer.stats();
+            true
+        }
+        _ => false,
+    }
+}
+
+/// # Safety
+/// Line is NULL or a live handle owned by the calling thread.
+#[no_mangle]
+pub unsafe extern "C" fn hng_line_min_delay(line: *const Line) -> u64 {
+    line.as_ref().map_or(0, |l| l.buffer.min_delay_ns())
+}
+
+/// Seal input for this line only; see `hng_engine_end_input`.
+/// # Safety
+/// Line is NULL or a live handle owned by the calling thread.
+#[no_mangle]
+pub unsafe extern "C" fn hng_line_end_input(line: *mut Line) {
+    if let Some(l) = line.as_mut() {
+        l.buffer.end_input();
+    }
+}
+
+/// See `hng_engine_drain_advance`; false for NULL or unsealed input.
+/// # Safety
+/// Line is NULL or a live handle owned by the calling thread.
+#[no_mangle]
+pub unsafe extern "C" fn hng_line_drain_advance(line: *mut Line, now_ns: u64) -> bool {
+    line.as_mut()
+        .is_some_and(|l| l.buffer.drain_advance(now_ns))
+}
+
+/// # Safety
+/// Line is NULL or a live handle owned by the calling thread.
+#[no_mangle]
+pub unsafe extern "C" fn hng_line_has_backlog(line: *const Line) -> bool {
+    line.as_ref().is_some_and(|l| l.buffer.has_backlog())
+}
+
+/// Pop the smallest `(release_ns, ingress_seq)` ready head among `n` lines that
+/// share one egress port, if its release is at most `limit_ns`. Line k uses
+/// input watermark `watermarks[k]`. Returns the index k of the popped line, or
+/// -1 when no head is ready or the smallest one exceeds the limit.
+/// # Safety
+/// `lines` and `watermarks` hold `n` entries (or n is 0); every handle is
+/// distinct, live and owned by the calling thread; out is writable.
+#[no_mangle]
+pub unsafe extern "C" fn hng_lines_pop_merged(
+    lines: *const *mut Line,
+    watermarks: *const u64,
+    n: usize,
+    now_ns: u64,
+    limit_ns: u64,
+    out: *mut HngPacket,
+) -> isize {
+    if n == 0 || lines.is_null() || watermarks.is_null() || out.is_null() {
+        return -1;
+    }
+    let lines = std::slice::from_raw_parts(lines, n);
+    let watermarks = std::slice::from_raw_parts(watermarks, n);
+    let mut best: Option<(usize, (u64, u64))> = None;
+    for (k, &l) in lines.iter().enumerate() {
+        let Some(l) = l.as_ref() else { return -1 };
+        if let Some(p) = l.buffer.ready(now_ns, watermarks[k]) {
+            let key = (p.release_ns, p.ingress_seq);
+            if best.is_none_or(|(_, b)| key < b) {
+                best = Some((k, key));
+            }
+        }
+    }
+    match best {
+        Some((k, (release, _))) if release <= limit_ns => {
+            // ready() just returned this head; release_q cannot change heads.
+            match (*lines[k]).buffer.pop_ready(now_ns) {
+                Some(p) => {
+                    *out = p;
+                    k as isize
+                }
+                None => -1,
+            }
+        }
+        _ => -1,
+    }
+}
+
+/// Offer `n` packets in order, packet i to `lines[line_index[i]]`, as if
+/// `hng_line_offer_record` were called for each: `results[i]` gets the outcome
+/// and, when ACCEPTED, `records[i]` the admitted record.
+/// # Safety
+/// The input arrays hold `n` entries, `results` and `records` are writable for
+/// `n` entries, every `line_index` is in range of `lines`, and every handle it
+/// selects is live and owned by the calling thread.
+#[no_mangle]
+pub unsafe extern "C" fn hng_lines_offer_burst(
+    lines: *const *mut Line,
+    line_index: *const u16,
+    packets: *const *mut std::ffi::c_void,
+    bytes: *const u32,
+    arrivals_ns: *const u64,
+    seqs: *const u64,
+    n: usize,
+    results: *mut PushResult,
+    records: *mut HngPacket,
+) {
+    for i in 0..n {
+        let line = *lines.add(usize::from(*line_index.add(i)));
+        *results.add(i) = line.as_mut().map_or(PushResult::InvalidInput, |l| {
+            l.buffer.push_with_record(
+                *packets.add(i),
+                *bytes.add(i),
+                *arrivals_ns.add(i),
+                *seqs.add(i),
+                records.add(i).as_mut(),
+            )
+        });
+    }
 }

@@ -12,3 +12,5 @@ target/
 # Editor / tooling local settings
 .vscode/
 .DS_Store
+.venv/
+__pycache__/

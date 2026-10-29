@@ -41,6 +41,9 @@ Q, worst-case delay and the registered burst envelope. It also reserves both
 FIFOs and the service ledger before traffic. The host adds actual PMD, ring,
 cache and pending-TX reserves to its mbuf pools. These are resource checks,
 not a proof that a particular CPU, packet mix or NUMA layout sustains 100G.
+`hng_slot_metadata_bytes()` returns the core metadata reserved per storage slot
+(two FIFO entries and one ledger entry), and `hng_engine_metadata_bytes(engine)`
+the bytes actually reserved by all lines. The host pool calculator uses both.
 
 ## Trace files
 
@@ -86,10 +89,12 @@ the engine never wraps or silently concatenates traces. Source conversion and
 the 05:15/10:00 splice protocol remain experiment responsibilities. The clamp
 does not validate splicing or reproduce source packet-specific reordering.
 
-Only probabilistic interval loss is currently supported. Exact identity masks,
-vendor-specific Garcia/Choi/OneWeb conversion and arbitrary per-packet late
-amounts require separate input adapters/policies. Unsupported fields/policies
-are rejected, rather than treated as FIFO replay.
+Only probabilistic interval loss is currently supported. The offline
+[Garcia converter](TRACE-TOOLS.md) produces delay-only intervals with source
+hashes, recipe and late-run diagnostics. It does not reconstruct outages or
+packet-specific loss. Exact identity masks, Choi/OneWeb conversion and arbitrary
+per-packet late amounts require separate input adapters/policies. Unsupported
+fields/policies are rejected, rather than treated as FIFO replay.
 
 ## Custody and shutdown
 
@@ -123,3 +128,29 @@ watermarks, storage occupancy, model loss, trace loss and invalid input. Host
 ring/NIC/mempool/TX counters remain separate. PMD TX acceptance is not proof of
 wire delivery. This API and its offline tests do not provide the independent
 full-ingress/receiver observer or hardware G2 certification.
+
+## Line handles for per-direction scheduler owners
+
+`hng_engine_line(engine, i)` returns a handle for line `i`. The `hng_line_*`
+functions (offer, peek, pop, abort_pop, stats, min_delay, end_input,
+drain_advance, has_backlog) have the same contracts as the matching
+`hng_engine_*` functions, but borrow only that line. Two owner threads may use
+handles for disjoint lines of one engine at the same time, for example one
+owner per ingress port. Each handle has one owner at a time. No `hng_engine_*`
+call may run while a handle is in use, because those calls borrow the whole
+engine. Take the handles before launching the owners.
+
+`hng_line_offer_record` is `hng_line_offer` that also returns the admitted
+record, so the host can annotate the packet while it is cached.
+`hng_lines_pop_merged(lines, watermarks, n, now, limit, out)` pops the smallest
+`(release_ns, ingress_seq)` ready head among `n` lines of one egress port when
+its release is at most `limit` (the host's bound against unseen input), and
+returns the index of that line, or -1. It replaces a peek per line and a pop.
+
+Line storage is reserved and touched (prefaulted) at load, so no page fault
+lands in the packet path. At the production envelope this is about 0.6 GiB per
+line, done serially before RX. Before reserving, load compares the total with
+`MemAvailable` from `/proc/meminfo` and fails with a configuration error if it
+does not fit. That is a snapshot: memory taken by other processes afterwards
+can still lead to an out-of-memory kill under overcommit. Where
+`/proc/meminfo` is missing, only the allocation itself is checked.

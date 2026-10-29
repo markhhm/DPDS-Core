@@ -10,6 +10,21 @@ fork has been released yet.
 
 ### Added
 
+- Separately registered synthetic outage drop/hold fixtures and a core integration
+  test for exact deadline, release, gate-boundary and finite-horizon behavior.
+- Finite terminal HOLD registration from actual converted maximum delay plus
+  explicit delta/Q drain allowances, with horizon validation by the comparator.
+- Canonical paired Garcia pool manifests with DL-derived phase, source hashes,
+  missing-phase exclusions and strict >0.5 s measurement-gap window exclusions.
+- Explicit corridor A/B propagation conversion with the registered exact
+  +45.6/+106.8 ms offsets and formula components in the recipe.
+- Registered M3 configured-equality semantics and documented cross-engine
+  lookup, loss and release-order differences (`docs/TRACE-SEMANTICS.md`).
+- Independent offline Garcia ZIP converter and configured-row comparator,
+  source hashes and versioned recipes, and source-versus-configured late-run
+  diagnostics (`docs/TRACE-TOOLS.md`). Synthetic Python tests run in the same
+  check script used by CI and the pre-push hook; NumPy is an offline-tool
+  requirement only, with no new Rust or DPDK dependency.
 - HNG scheduling engine (`src/hng.rs`, `src/hng_engine.rs`, `src/hng_trace.rs`):
   per-line shared finite-Q FIFO bottleneck, fixed delay plus seeded late subset,
   monotone trace replay, C ABI, and `hng-v1` configuration
@@ -38,5 +53,7 @@ fork has been released yet.
 
 ### Fixed
 
+- Preserve reference floating addition order at half-microsecond crop boundaries
+  and cancel propagation offsets as integers before late-run classification.
 - Preserve due trace heads for actual-time TX arbitration.
 - Enforce the finite trace horizon before all intentional loss outcomes.

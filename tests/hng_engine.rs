@@ -121,3 +121,326 @@ fn documented_hardware_free_four_state_example_validates() {
         4
     );
 }
+
+#[test]
+fn metadata_reservation_is_exact_per_storage_slot() {
+    use dpds_core::hng_engine::{hng_engine_metadata_bytes, hng_slot_metadata_bytes};
+    let e = Box::into_raw(Box::new(Engine::from_json(&json()).unwrap()));
+    let slot = hng_slot_metadata_bytes();
+    // Two packet FIFOs and the service ledger, each reserved at the slot capacity.
+    assert!(slot > 0);
+    assert_eq!(unsafe { hng_engine_metadata_bytes(e) }, 2 * 32 * slot);
+    assert_eq!(unsafe { hng_engine_metadata_bytes(std::ptr::null()) }, 0);
+    drop(unsafe { Box::from_raw(e) });
+}
+
+fn four_lines() -> String {
+    json()
+        .replace("\"vlan_id\":200", "\"vlan_id\":101")
+        .replace("]}", ",")
+        + json()
+            .replace("\"name\":\"cable\"", "\"name\":\"cable-r\"")
+            .replace("\"name\":\"leo\"", "\"name\":\"leo-r\"")
+            .replace("\"vlan_id\":200", "\"vlan_id\":101")
+            .replace(
+                "\"ingress_port\":0,\"egress_port\":1",
+                "\"ingress_port\":1,\"egress_port\":0",
+            )
+            .split_once("\"lines\":[")
+            .unwrap()
+            .1
+}
+
+/// Line handles give each owner thread exclusive access to its own lines.
+#[test]
+fn line_handles_match_engine_calls_and_run_concurrently() {
+    use dpds_core::hng::{HngPacket, PushResult};
+    use dpds_core::hng_engine::*;
+    let run = |split: bool| -> Vec<Vec<(u64, u64)>> {
+        let e = Box::into_raw(Box::new(Engine::from_json(&four_lines()).unwrap()));
+        assert_eq!(unsafe { hng_engine_line_count(e) }, 4);
+        assert!(unsafe { hng_engine_line(e, 4) }.is_null());
+        let lines: Vec<usize> = (0..4)
+            .map(|i| unsafe { hng_engine_line(e, i) } as usize)
+            .collect();
+        let eu = e as usize;
+        let work = |owned: Vec<usize>| -> Vec<Vec<(u64, u64)>> {
+            let mut out = vec![Vec::new(); owned.len()];
+            for seq in 0..200u64 {
+                for (k, &i) in owned.iter().enumerate() {
+                    let now = seq * 10;
+                    let ptr = (seq + 1) as usize as *mut std::ffi::c_void;
+                    let r = if split {
+                        unsafe { hng_line_offer(lines[i] as *mut Line, ptr, 76, now, seq) }
+                    } else {
+                        unsafe { hng_engine_offer(eu as *mut Engine, i, ptr, 76, now, seq) }
+                    };
+                    assert!(matches!(r, PushResult::Accepted | PushResult::QDrop));
+                    let mut p = std::mem::MaybeUninit::<HngPacket>::uninit();
+                    while unsafe {
+                        if split {
+                            hng_line_pop(lines[i] as *mut Line, now, now, p.as_mut_ptr())
+                        } else {
+                            hng_engine_pop(eu as *mut Engine, i, now, now, p.as_mut_ptr())
+                        }
+                    } {
+                        let p = unsafe { p.assume_init() };
+                        out[k].push((p.ingress_seq, p.release_ns));
+                    }
+                }
+            }
+            out
+        };
+        let result = if split {
+            std::thread::scope(|scope| {
+                let a = scope.spawn(|| work(vec![0, 1]));
+                let b = scope.spawn(|| work(vec![2, 3]));
+                let mut r = a.join().unwrap();
+                r.extend(b.join().unwrap());
+                r
+            })
+        } else {
+            work(vec![0, 1, 2, 3])
+        };
+        for &handle in &lines {
+            let l = handle as *mut Line;
+            unsafe { hng_line_end_input(l) };
+            assert!(unsafe { hng_line_drain_advance(l, u64::MAX / 2) });
+            let mut p = std::mem::MaybeUninit::<HngPacket>::uninit();
+            while unsafe { hng_line_abort_pop(l, p.as_mut_ptr()) } {}
+            assert!(!unsafe { hng_line_has_backlog(l) });
+            assert_eq!(unsafe { hng_line_min_delay(l) }, 0);
+            let mut s = std::mem::MaybeUninit::uninit();
+            assert!(unsafe { hng_line_stats(l, s.as_mut_ptr()) });
+            assert!(!unsafe { hng_line_peek(l, 0, 0, std::ptr::null_mut()) });
+        }
+        assert!(unsafe { hng_engine_destroy(e) });
+        result
+    };
+    let single = run(false);
+    assert!(single.iter().all(|v| !v.is_empty()));
+    assert_eq!(single, run(true));
+}
+
+#[test]
+fn offer_record_matches_the_record_pop_returns() {
+    use dpds_core::hng::{HngPacket, PushResult};
+    use dpds_core::hng_engine::*;
+    let e = Box::into_raw(Box::new(Engine::from_json(&four_lines()).unwrap()));
+    let l = unsafe { hng_engine_line(e, 0) };
+    let mut offered = Vec::new();
+    for seq in 0..50u64 {
+        let mut r = std::mem::MaybeUninit::<HngPacket>::uninit();
+        let ptr = (seq + 1) as usize as *mut std::ffi::c_void;
+        match unsafe { hng_line_offer_record(l, ptr, 76, seq * 5, seq, r.as_mut_ptr()) } {
+            PushResult::Accepted => offered.push(unsafe { r.assume_init() }),
+            PushResult::QDrop => {}
+            other => panic!("unexpected {other:?}"),
+        }
+    }
+    assert!(!offered.is_empty() && offered.len() < 50);
+    let null = std::ptr::null_mut();
+    assert_eq!(
+        unsafe { hng_line_offer_record(l, 7 as *mut _, 76, 10_000, 99, null) },
+        PushResult::Accepted
+    );
+    let mut p = std::mem::MaybeUninit::<HngPacket>::uninit();
+    let mut popped = Vec::new();
+    while unsafe { hng_line_pop(l, u64::MAX / 2, u64::MAX / 2, p.as_mut_ptr()) } {
+        popped.push(unsafe { p.assume_init() });
+    }
+    let key = |p: &HngPacket| {
+        (
+            p.packet_ptr as usize,
+            p.deadline_ns,
+            p.release_ns,
+            p.service_ns,
+        )
+    };
+    let mut a: Vec<_> = offered.iter().map(key).collect();
+    let mut b: Vec<_> = popped.iter().map(key).filter(|k| k.0 != 7).collect();
+    a.sort();
+    b.sort();
+    assert_eq!(a, b);
+    unsafe { hng_line_end_input(l) };
+    assert!(unsafe { hng_line_drain_advance(l, u64::MAX / 2) });
+    assert!(unsafe { hng_engine_destroy(e) });
+}
+
+/// The merged pop takes the smallest (release, ingress_seq) ready head, like a host-side merge.
+#[test]
+fn merged_pop_matches_a_host_side_merge() {
+    use dpds_core::hng::{HngPacket, PushResult};
+    use dpds_core::hng_engine::*;
+    let run = |merged: bool| -> Vec<(isize, u64, u64)> {
+        let e = Box::into_raw(Box::new(Engine::from_json(&four_lines()).unwrap()));
+        let lines = [unsafe { hng_engine_line(e, 0) }, unsafe {
+            hng_engine_line(e, 1)
+        }];
+        let mut out = Vec::new();
+        for seq in 0..400u64 {
+            let line = lines[(seq * 7 % 3 % 2) as usize];
+            let ptr = (seq + 1) as usize as *mut std::ffi::c_void;
+            let r = unsafe { hng_line_offer(line, ptr, 76, seq * 120, seq) };
+            assert!(matches!(r, PushResult::Accepted | PushResult::QDrop));
+            let now = seq * 120;
+            // The limit trails the clock so some ready heads are held back.
+            let limit = now.saturating_sub(300);
+            let w = [now, now];
+            loop {
+                let mut p = std::mem::MaybeUninit::<HngPacket>::uninit();
+                let k = if merged {
+                    unsafe {
+                        hng_lines_pop_merged(
+                            lines.as_ptr(),
+                            w.as_ptr(),
+                            2,
+                            now,
+                            limit,
+                            p.as_mut_ptr(),
+                        )
+                    }
+                } else {
+                    let mut best: Option<(usize, (u64, u64))> = None;
+                    for (k, &l) in lines.iter().enumerate() {
+                        if unsafe { hng_line_peek(l, now, w[k], p.as_mut_ptr()) } {
+                            let h = unsafe { p.assume_init() };
+                            let key = (h.release_ns, h.ingress_seq);
+                            if best.is_none_or(|b| key < b.1) {
+                                best = Some((k, key));
+                            }
+                        }
+                    }
+                    match best {
+                        Some((k, key)) if key.0 <= limit => {
+                            assert!(unsafe { hng_line_pop(lines[k], now, w[k], p.as_mut_ptr()) });
+                            k as isize
+                        }
+                        _ => -1,
+                    }
+                };
+                if k < 0 {
+                    break;
+                }
+                let p = unsafe { p.assume_init() };
+                out.push((k, p.ingress_seq, p.release_ns));
+            }
+        }
+        let mut p = std::mem::MaybeUninit::<HngPacket>::uninit();
+        let null = std::ptr::null();
+        assert_eq!(
+            unsafe { hng_lines_pop_merged(null, std::ptr::null(), 0, 0, 0, p.as_mut_ptr()) },
+            -1
+        );
+        for &l in &lines {
+            while unsafe { hng_line_abort_pop(l, p.as_mut_ptr()) } {}
+            unsafe { hng_line_end_input(l) };
+        }
+        unsafe { hng_engine_drain_advance(e, u64::MAX / 2) };
+        unsafe { hng_engine_abort_destroy(e) };
+        out
+    };
+    let manual = run(false);
+    assert!(manual.len() > 100 && manual.iter().any(|x| x.0 == 1));
+    assert_eq!(manual, run(true));
+}
+
+/// FIFO entries are one 64-byte cache line; the ledger entry stays 32 bytes.
+#[test]
+fn stored_packets_fit_one_cache_line() {
+    assert_eq!(
+        dpds_core::hng_engine::hng_slot_metadata_bytes(),
+        2 * 64 + 32
+    );
+}
+
+/// A burst offer gives the same results and records as one offer per packet.
+#[test]
+fn burst_offer_matches_single_offers() {
+    use dpds_core::hng::{HngPacket, PushResult};
+    use dpds_core::hng_engine::*;
+    let run = |burst: bool| -> Vec<(PushResult, u64, u64)> {
+        let e = Box::into_raw(Box::new(Engine::from_json(&four_lines()).unwrap()));
+        let handles: Vec<*mut Line> = (0..4).map(|i| unsafe { hng_engine_line(e, i) }).collect();
+        let mut out = Vec::new();
+        for b in 0..20u64 {
+            let n = 16usize;
+            let line: Vec<u16> = (0..n).map(|i| ((b as usize + i * 3) % 4) as u16).collect();
+            let ptrs: Vec<*mut std::ffi::c_void> = (0..n)
+                .map(|i| (b * 16 + i as u64 + 1) as usize as *mut _)
+                .collect();
+            let bytes: Vec<u32> = (0..n).map(|i| if i % 5 == 0 { 0 } else { 76 }).collect(); // 0 is invalid
+            let arrivals: Vec<u64> = (0..n).map(|i| b * 1000 + i as u64 * 50).collect();
+            let seqs: Vec<u64> = (0..n).map(|i| b * 16 + i as u64).collect();
+            let mut results = vec![PushResult::InvalidInput; n];
+            let mut records = vec![std::mem::MaybeUninit::<HngPacket>::zeroed(); n];
+            if burst {
+                unsafe {
+                    hng_lines_offer_burst(
+                        handles.as_ptr(),
+                        line.as_ptr(),
+                        ptrs.as_ptr(),
+                        bytes.as_ptr(),
+                        arrivals.as_ptr(),
+                        seqs.as_ptr(),
+                        n,
+                        results.as_mut_ptr(),
+                        records.as_mut_ptr().cast(),
+                    )
+                };
+            } else {
+                for i in 0..n {
+                    results[i] = unsafe {
+                        hng_line_offer_record(
+                            handles[line[i] as usize],
+                            ptrs[i],
+                            bytes[i],
+                            arrivals[i],
+                            seqs[i],
+                            records[i].as_mut_ptr(),
+                        )
+                    };
+                }
+            }
+            for i in 0..n {
+                let r = unsafe { records[i].assume_init() };
+                let accepted = results[i] == PushResult::Accepted;
+                out.push((
+                    results[i],
+                    if accepted { r.deadline_ns } else { 0 },
+                    if accepted { r.release_ns } else { 0 },
+                ));
+            }
+        }
+        let mut p = std::mem::MaybeUninit::<HngPacket>::uninit();
+        for &l in &handles {
+            while unsafe { hng_line_abort_pop(l, p.as_mut_ptr()) } {}
+            unsafe { hng_line_end_input(l) };
+        }
+        unsafe { hng_engine_drain_advance(e, u64::MAX / 2) };
+        assert!(unsafe { hng_engine_destroy(e) });
+        out
+    };
+    let single = run(false);
+    assert!(single.iter().any(|r| r.0 == PushResult::Accepted));
+    assert!(single.iter().any(|r| r.0 != PushResult::Accepted));
+    assert_eq!(single, run(true));
+}
+
+/// Lines driven by different owners never share a cache line (or an adjacent-line prefetch pair).
+#[test]
+fn lines_do_not_share_cache_lines() {
+    assert!(std::mem::align_of::<dpds_core::hng_engine::Line>() >= 128);
+}
+
+/// Startup refuses a core reservation larger than the memory the kernel reports
+/// as available, instead of prefaulting into an out-of-memory kill.
+#[test]
+fn reservation_above_available_memory_is_a_clean_error() {
+    use dpds_core::hng_engine::check_reservation;
+    assert!(check_reservation(1 << 30, Some(2 << 30)).is_ok());
+    let e = check_reservation(3 << 30, Some(2 << 30)).unwrap_err();
+    assert!(e.contains("available"), "{e}");
+    // Without a kernel report (non-Linux), the allocation itself is the only check.
+    assert!(check_reservation(u64::MAX, None).is_ok());
+}

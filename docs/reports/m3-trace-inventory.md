@@ -30,8 +30,10 @@ records are project evidence, not runtime dependencies of the public engine.
 | H | [the Stage 1 harness `69daa0c5cc48d80223ea42563c2dd8603c3699c2`](https://example.invalid/stage1/tree/69daa0c5cc48d80223ea42563c2dd8603c3699c2), branch `trace reviewer/splice-clamp-2026-10-29`. The replay model, single-segment generator and loader are also unchanged in fetched main `12e76f357532f89035e3a470e7b0eabfd3406636`; the experimental splice additions are not in that main version. |
 | T | [TheaterQ hng `bc57c33ef2890cdaffa23f7a5c069ae0699c30b2`](https://github.com/markhhm/TheaterQ/tree/bc57c33ef2890cdaffa23f7a5c069ae0699c30b2), inspected source only. H's `C2/leo-emu/validation/README.md:94-103` separately records the earlier validation build at `55f0b5e`; this inventory did not inspect a running module. |
 | K | research records `7402fe63af1a9e9b49b0e85ef4b93acda2da9f1d`: `research/plans/active/step2-routing-demo-design.md` (abbreviated **Step 2** below), `research/reviews/dpop-2026-10-29/report-rne.md`, `research/reviews/splice-clamp-2026-10-29/report.md`, and `research/reviews/100g-emulator-implementation worker-2026-10-29/report.md`. |
-| O | research records `4b07aeace4bc0f70da354a1640194943626d4572`: `research/plans/active/p1-100g-roadmap.md`, sections OS1-OS6 and M3. |
+| O | research records `4b07aeace4bc0f70da354a1640194943626d4572`: `research/plans/active/p1-100g-roadmap.md`, sections OS1-OS6 and M3; rechecked against fetched main `7a1d828` after the session resumed. |
 | G | Garcia dataset [Zenodo record 16275284](https://zenodo.org/records/16275284), its [metadata API](https://zenodo.org/api/records/16275284), and the locally supplied author `README.txt`, lines 1-12. README SHA-256: `a2f0ebc15ae8b81f299e86b576a0536c46f92e88f6c97c0c9080091bfcae571e`. |
+| L | LENS `75d9befd4da77c25b3e7181f200ddda232873bbb`: [OneWeb README](https://github.com/clarkzjw/LENS/blob/75d9befd4da77c25b3e7181f200ddda232873bbb/oneweb/README.md), [main README](https://github.com/clarkzjw/LENS/blob/75d9befd4da77c25b3e7181f200ddda232873bbb/README.md#license), and [LICENSE](https://github.com/clarkzjw/LENS/blob/75d9befd4da77c25b3e7181f200ddda232873bbb/LICENSE); OneWeb [Zenodo record 15786375](https://zenodo.org/records/15786375) and its [metadata API](https://zenodo.org/api/records/15786375). |
+| D | Choi and Paek dataset DOI `10.21227/bc71-sg44`: [DataCite metadata](https://api.datacite.org/dois/10.21227/bc71-sg44), [IEEE DataPort record](https://ieee-dataport.org/documents/leo-access-link-traces-measurements-commercial-starlink-terminal), and the associated paper DOI `10.1109/JIOT.2026.3743200`, whose data-availability statement points to that dataset. |
 
 ## Existing pipeline and reuse boundary
 
@@ -187,16 +189,39 @@ for `2025-04-13-12-06-16__dl.csv.zip`. The sensitivity option marked exactly
 5,792 inserted samples lost. Private receipts retain source locations and
 counts; no raw data is committed here.
 
-The official Zenodo API reports Garcia's license as `cc-by-4.0`; retain dataset
-attribution and distinguish source data licensing from Apache-2.0 code licensing.
-OneWeb replay remains deferred pending the assigned feasibility assessment
-(K Step 2 line 208; O M3). Local IRTT files exist, but a selected OneWeb replay
-profile and its redistribution license were not verified in this inventory.
-No Choi-named raw trace was located in the inspected mounted collection. K
+### Original dataset licenses, checked on 2026-10-29
+
+These are original-data licenses verified from publisher/depositor records,
+not licenses inferred from the papers or the ability to download a file.
+
+| Dataset | Primary evidence and access | License and distribution conditions |
+| --- | --- | --- |
+| Garcia Starlink OWD | G's official Zenodo API identifies `cc-by-4.0` for record 16275284. The checked ZIPs above identify the locally available subset. | **CC BY 4.0.** Retain attribution to the dataset, its source link and license; identify any conversion changes. Do not describe the data as Apache-2.0. |
+| LENS OneWeb, Iowa | L's OneWeb README lines 5, 19 and 24 identifies the Iowa raw dataset and its March 2025 snapshot, which includes IRTT. Lines 63-65 explicitly license the OneWeb dataset as CC BY-SA 4.0. Zenodo API record 15786375 independently reports `cc-by-sa-4.0` and lists `202503.tar.zst` (26,609,747,785 bytes). Only metadata and documentation were fetched, not that archive. | **CC BY-SA 4.0.** Preserve attribution, source/license links and modification notices. Distributing adapted data must follow the ShareAlike terms; do not relabel a converted OneWeb trace as Apache-2.0. |
+| Choi / Paek Starlink traces | D's DataCite `rightsList` explicitly identifies `cc-by-4.0` and links the license legal text. The DataPort record lists `dataset_release.zip` (91.69 GB) and requires an authenticated subscription to access it. The paper identifies the same dataset DOI. No login or raw-archive download was attempted. | **CC BY 4.0 according to the depositor's DOI metadata.** Preserve dataset attribution, source/license links and modification notices. The subscription download gate is distinct from the deposited license. Archive-internal notices and the exact local subset still need verification before using or redistributing archive members. |
+
+The redistribution/adaptation conditions above follow the official Creative
+Commons [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) and
+[CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/) summaries.
+The LENS main README separately licenses repository code as GPL-3.0 and the
+Zenodo dataset files as CC BY-SA 4.0 (lines 600-604). Its code license is not a
+license for the DPDS converter. No LENS code was copied or imported.
+
+OneWeb replay still waits for the assigned feasibility assessment (K Step 2
+line 208; O M3) and an identified source member/hash. The inspected local IRTT
+download manifest points to the LENS Starlink collection; that does not establish
+the availability of the selected Iowa OneWeb segment. Choi raw data exists in
+the official release; absence of a Choi-named local file is not evidence that
+only a paper exists. K
 `research/reviews/leo-datasets-inventory-2026-10-29/interpretation-batch-2.md:3-13`
-nevertheless records a seven-run Choi analysis, so it would be incorrect to
-conclude that only a paper exists. Request the source manifest and license
-before any Choi adapter; packet-specific reordering remains outside this task.
+also records a seven-run Choi analysis. Its selected-source manifest and the
+archive's `DOCUMENTATION.md` remain necessary before an adapter can be specified.
+Packet-specific reordering remains outside this task.
+
+This inventory adds no original or converted third-party data to the fork.
+Future CI fixtures must be small synthetic traces. Public reproduction should
+use user-supplied source paths, download/conversion instructions and verified
+hashes, with the appropriate data-license and attribution notices.
 
 ## Questions for the research owner
 
@@ -219,9 +244,11 @@ before any Choi adapter; packet-specific reordering remains outside this task.
 5. **Phase fallback and terminal coverage:** Is the generator's no-phase fallback
    acceptable for the canonical pool, or must such runs be excluded? Register
    the finite HOLD horizon and admission/drain coverage for the chosen fixture.
-6. **Other sources and code reuse:** Supply the selected OneWeb/Choi manifests,
-   licenses and OneWeb feasibility result before those adapters. Confirm a
-   license for any H code copied into the Apache-2.0 fork.
+6. **Other sources and code reuse:** Supply the selected OneWeb/Choi member
+   manifests and hashes, Choi archive-internal notices, and the OneWeb feasibility
+   result before those adapters. The original data licenses are now identified
+   above; this does not identify the selected replay subsets. Confirm a license
+   for any H code copied into the Apache-2.0 fork.
 
 These are questions, not proposed defaults. Steps 2-4 remain pending lead review
 and resolution of the applicable semantic questions.
@@ -248,7 +275,7 @@ README link. It adds no converter, interface, fixture or engine behavior.
 
 | Gate | This submission and remaining milestone work |
 | --- | --- |
-| OS1 | The new report has an Apache-2.0 SPDX header. LICENSE is unchanged. No NOTICE exists in inspected base C; no inherited notice was removed. Source/code attribution and other-source licenses remain release prerequisites. |
+| OS1 | The new report has an Apache-2.0 SPDX header. LICENSE is unchanged. No NOTICE exists in inspected base C; no inherited notice was removed. Garcia, OneWeb and Choi original data licenses are identified above. Exact-subset provenance, Choi archive notices and source-code reuse licensing remain prerequisites before those inputs are used or distributed. |
 | OS2 | New repository text contains no deployment addresses, machine names, credentials or absolute local paths. Private evidence stays outside the repository. Future converter input/output locations must be parameters with portable examples. |
 | OS3 | README links this inventory and states that conversion is pending. A converter quick start waits for an approved, implemented converter. |
 | OS4 | No dependency or public interface changed; the Rust core remains independent of DPDK. The normalized trace contract already exists in HNG-API. Future CLI and provenance fields need public documentation. |

@@ -16,6 +16,8 @@ fork has been released yet.
   (`docs/HNG-API.md`, `docs/HNG-DESIGN.md`).
 - Engine and scheduler test suites with independent reference fixtures.
 - `scripts/check.sh`, the single check suite run by the pre-push hook and CI.
+  It locates cargo from `CARGO`, then `PATH`, then the rustup default, and
+  fails with a clear message when none works.
 - Versioned pre-push hook and installer (`scripts/git-hooks/pre-push`,
   `scripts/install-hooks.sh`).
 - GitHub Actions CI running `scripts/check.sh`.

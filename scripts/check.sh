@@ -5,9 +5,10 @@ set -eu
 cd "$(git rev-parse --show-toplevel)"
 scripts/check-policy.sh
 scripts/check-policy-test.sh
-cargo fmt --check
-cargo clippy --locked --all-targets -- -D warnings
-cargo test --locked
+. scripts/find-cargo.sh
+"$CARGO" fmt --check
+"$CARGO" clippy --locked --all-targets -- -D warnings
+"$CARGO" test --locked
 # A check that rewrites tracked files (for example a stale Cargo.lock) must fail.
 if [ -n "$(git status --porcelain)" ]; then
     echo "Checks modified the working tree:" >&2

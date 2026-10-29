@@ -1,2 +1,4 @@
 # SPDX-License-Identifier: Apache-2.0
 # Allowed check-policy.sh OS2 hits, one "path:fixed text" per line. Keep minimal.
+# rustup default location used as the last cargo fallback; generic, not personal.
+scripts/find-cargo.sh:$HOME/.cargo/bin

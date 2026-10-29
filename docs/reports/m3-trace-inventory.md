@@ -216,8 +216,7 @@ line 208; O M3) and an identified source member/hash. The inspected local IRTT
 download manifest points to the LENS Starlink collection; that does not establish
 the availability of the selected Iowa OneWeb segment. Choi raw data exists in
 the official release; absence of a Choi-named local file is not evidence that
-only a paper exists. K
-`research/reviews/leo-datasets-inventory-2026-10-29/interpretation-batch-2.md:3-13`
+only a paper exists. A LEO dataset inventory review in K (2026-10-29)
 also records a seven-run Choi analysis. Its selected-source manifest and the
 archive's `DOCUMENTATION.md` remain necessary before an adapter can be specified.
 Packet-specific reordering remains outside this task.

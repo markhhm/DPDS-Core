@@ -594,6 +594,11 @@ impl HngBuffer {
             .saturating_sub(u128::from(self.stats.ledger_watermark_ns) * rate)
             .div_ceil(rate) as u64
     }
+
+    /// Selector ordinal for the next valid offer; early invalid input does not consume it.
+    pub fn next_selection_seq(&self) -> u64 {
+        self.next_selection_seq
+    }
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }

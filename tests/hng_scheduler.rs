@@ -143,6 +143,34 @@ fn q_drain_is_exact_at_the_explicit_ledger_watermark_and_read_only() {
 }
 
 #[test]
+fn selector_counter_follows_actual_validation_q_and_storage_outcomes() {
+    let mut b = HngBuffer::new(HngConfig {
+        storage_capacity_packets: 1,
+        ..config()
+    })
+    .unwrap();
+    assert_eq!(b.next_selection_seq(), 0);
+    assert_eq!(
+        b.push_with_seq(packet(1), 0, 0, 0),
+        PushResult::InvalidInput
+    );
+    assert_eq!(b.next_selection_seq(), 0);
+    assert_eq!(b.push_with_seq(packet(2), 76, 0, 1), PushResult::Accepted);
+    assert_eq!(b.next_selection_seq(), 1);
+    assert_eq!(b.push_with_seq(packet(3), 76, 0, 2), PushResult::QDrop);
+    assert_eq!(b.next_selection_seq(), 2);
+    assert_eq!(
+        b.push_with_seq(packet(4), 76, 100, 3),
+        PushResult::StorageDrop
+    );
+    assert_eq!(b.next_selection_seq(), 3);
+    b.pop().unwrap();
+    assert_eq!(b.push_with_seq(packet(5), 76, 100, 4), PushResult::Accepted);
+    assert_eq!(b.front().unwrap().selection_seq, 3);
+    assert_eq!(b.next_selection_seq(), 4);
+}
+
+#[test]
 fn late_deadline_has_exact_delta_and_storage_never_drops_below_capacity() {
     for p in [Probability::ZERO, Probability::ONE] {
         let mut b = HngBuffer::new(HngConfig {

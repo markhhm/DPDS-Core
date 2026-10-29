@@ -103,8 +103,9 @@ fn legacy(
         Some(trace) => HngBuffer::with_trace(header.model, trace)?,
         None => HngBuffer::new(header.model)?,
     };
-    for (selection_seq, line) in input.enumerate() {
+    for line in input {
         let event: LegacyEvent = serde_json::from_str(&line?)?;
+        let selection_seq = buffer.next_selection_seq();
         let result = buffer.push_with_seq(
             pointer(event.ingress_seq)?,
             event.length,
@@ -116,7 +117,7 @@ fn legacy(
             "{}",
             json!({"kind":"admission", "ingress_seq":event.ingress_seq,
             "selection_seq":selection_seq,
-            "late":header.model.p.sample(header.model.seed, selection_seq as u64),
+            "late":header.model.p.sample(header.model.seed, selection_seq),
             "outcome":outcome(result), "q_bytes":buffer.stats().q_bytes,
             "q_drain_ns":buffer.q_drain_ns()})
         )?;
@@ -233,7 +234,6 @@ fn multiline(
         .iter()
         .map(|line| serde_json::from_value(line["model"].clone()))
         .collect::<Result<_, _>>()?;
-    let mut selections = vec![0u64; engine.lines.len()];
     let mut ports: BTreeMap<u16, Port> = engine
         .lines
         .iter()
@@ -272,8 +272,7 @@ fn multiline(
                 {
                     return Err("invalid packet history".into());
                 }
-                let selection_seq = selections[line];
-                selections[line] = selection_seq.checked_add(1).ok_or("selection overflow")?;
+                let selection_seq = target.next_selection_seq();
                 // SAFETY: live exclusive line; opaque IDs are never dereferenced.
                 let result = unsafe {
                     hng_line_offer(

@@ -145,6 +145,11 @@ impl Line {
     pub fn q_drain_ns(&self) -> u64 {
         self.buffer.q_drain_ns()
     }
+
+    /// Actual next selector ordinal, independently of the input port's packet count.
+    pub fn next_selection_seq(&self) -> u64 {
+        self.buffer.next_selection_seq()
+    }
 }
 
 pub struct Engine {

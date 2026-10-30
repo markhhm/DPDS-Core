@@ -256,15 +256,70 @@ end to end for this ledger, so other rows are claims to audit, not new evidence.
 | 9 | Typed counter snapshots | `68a4350` | NIC-specific descriptors |
 | 10 | Per-cell verdicts and inventory | `4ed39d8`, `5f5e8ce` | none |
 | 11 | Signed errors, strata, windows | `4ed39d8`, `5f5e8ce` | none |
-| 12 | Shared-egress attempt/dispatch audit | `f823b9e`, `172feea`, live in `4180fac`; end-to-end shared-egress fixture added after the 2026-10-30 merge | a held trace line next to a cable line is covered by the replay tests, not by a sealed-bundle fixture |
+| 12 | Shared-egress attempt/dispatch audit | `f823b9e`, `172feea`, live in `4180fac`; `15948b2` adds the end-to-end shared-egress fixture | a held trace line next to a cable line is covered by the replay tests, not by a sealed-bundle fixture |
 | 13 | Busy-period collision diagnostic | `5f5e8ce` | none |
 | 14 | `hng-g2-report-v1` and CSV | `1af5d99`, `5f5e8ce` | CSV column audit against the spec |
 | 15 | Receiver anomaly classes | `4ed39d8`, `1af5d99` | none |
 | 16 | Bounded streaming join | `1af5d99`, `7f6ff79` | none for software |
 | 17 | Wider differential coverage | `4fa7971`, `c0eb439`, core `dd1fea2` | none |
 | 18 | Fault injection through the real PMD path | online-statistics fixtures only | pcap/net_ring DUT injection with mixed population |
-| 19 | Native exporter | `0857270`, `4180fac`, `6cd16c4` | observation is refused in the 7-lcore layout |
-| 20 | Open-source items | SPDX and path scrub in earlier commits | event/report format document; CI wiring of fault-injection tests (CI is currently red from a stepped-test timeout on a 4-CPU runner, unrelated to this branch) |
+| 19 | Native exporter | `0857270`, `4180fac`, `6cd16c4`; `4e1bde5` rejects 7-lcore capture before startup | 7-lcore observation remains unsupported |
+| 20 | Open-source items | SPDX and path scrub in earlier commits | event/report format document; CI wiring of the missing PMD fault-injection tests |
 
 Added by the 2026-10-30 integration: observation in the 7-lcore layout is not
 supported (the host refuses it at startup), listed after item 12.
+
+## Review fixes and four-CPU timing (2026-10-30)
+
+Software-only. These changes address the review of host `f98d185`; they do not
+provide accuracy, throughput, physical G2 or complete M2 qualification. The gap
+ledger above was published as core `6e2d0b4` after its full check suite passed.
+
+| Item | Status | Host commit and evidence |
+| --- | --- | --- |
+| Real host-core merge | Done | `f7310f0` has two parents and includes `e47372b` |
+| Recovered line at the final clock read | Done | `7840e7a`; `recovery_at_final_clock_read` first failed on the observed release order 200 then 100; now sends 100 then 200 |
+| Expired retry rejoining a merged burst | Fixed; base-branch PR awaiting review | Reproduced on `hng/core` at `6b9880d`; `f7ca0e1` validates replacement heads before merging; `e203149` merges it into M2 while retaining observer terminal and abort events |
+| Reject 7-lcore capture before producers | Done | `4e1bde5`; `observer-export` first showed pools and a launched layout, then passed with an empty capture and rejection before pool creation; disabled 7-lcore forwarding also passes |
+
+Retry fix [PR #3](https://github.com/markhhm/DPDS/pull/3) targets `hng/core` from
+`hng/fix-tx-retry-burst`. Both remote `check` jobs passed; the PR was left open
+for review. No protected-base merge was performed. Merging its branch into M2
+also includes the existing `6b9880d` affinity-call fix.
+
+Each of the three regressions was run failing before its production fix. The
+retry branch's normal pre-push check passed all 30 Meson tests with zero skips.
+The final M2 host `4e1bde5` passed the normal pre-push check: all 35 Meson tests,
+zero skips. Full checks and pushes were serialized with the shared test lock.
+
+### Four-CPU software test timing
+
+On host commit `4e1bde5`, with affinity restricted to logical CPUs `0,1,2,3`:
+
+```sh
+flock /tmp/hng-tests.lock taskset -c 0,1,2,3 /usr/bin/time \
+  -f 'wall_seconds=%e user_seconds=%U sys_seconds=%S exit=%x' \
+  meson test -C build --no-rebuild g2-software --print-errorlogs --verbose
+```
+
+One run passed all 179 Python tests in 106.961 s. Meson recorded 107.04 s;
+the outer timer recorded 107.25 s wall, 104.99 s user and 1.35 s system time,
+exit 0. Lock waiting and compilation are excluded. The unchanged Meson timeout
+is 180 s. Differential coverage included 1,048,576 events across 32 cases,
+with zero mismatches. This is a single software-only run on a shared machine,
+not a CI timing guarantee or physical performance evidence.
+
+### Remote CI limitation
+
+Host [CI run 41019113194](https://github.com/markhhm/DPDS/actions/runs/41019113194)
+on `4e1bde5` failed before Meson or the regression tests ran. The pinned core's
+check reports: `NumPy is missing or cannot be imported by python3.` The host
+workflow does not install the pinned core's trace requirements. Local checks
+use a prepared Python environment and pass; the remote dependency setup remains
+unfixed. The retry-only PR uses the base branch's earlier core pin and has two
+passing remote checks. No CI check or hook was bypassed.
+
+The held-trace-plus-cable sealed-bundle fixture (item 12), mixed-population
+faults through actual PMDs (item 18), CSV/spec audit and format documentation
+remain open. Other ledger rows are prior implementation claims, not a new
+independent audit. Further M2 integration requires another independent review.

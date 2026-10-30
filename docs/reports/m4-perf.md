@@ -64,7 +64,7 @@ about 6% of the fixed-mode p50.
 
 ```sh
 cd build && ./hng-sched-bench --lcores=0@6 --no-pci --no-huge --no-telemetry \
-  -m 512 --file-prefix=hng-sched -- -r 3
+  -m 512 --in-memory --file-prefix=hng-sched -- -r 3
 ```
 
 This times the production `worker_step_at()` (classify, admit, merge, dequeue)

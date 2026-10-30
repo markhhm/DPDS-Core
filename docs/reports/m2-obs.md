@@ -264,7 +264,7 @@ end to end for this ledger, so other rows are claims to audit, not new evidence.
 | 17 | Wider differential coverage | `4cd8a84`, `962e12f`, core `843c14a` | none |
 | 18 | Fault injection through the real PMD path | online-statistics fixtures only | pcap/net_ring DUT injection with mixed population |
 | 19 | Native exporter | `eb75f37`, `9952a4b`, `29f7d23`; `96c5fb3` rejects 7-lcore capture before startup | 7-lcore observation remains unsupported |
-| 20 | Open-source items | SPDX and path scrub in earlier commits | event/report format document; CI wiring of the missing PMD fault-injection tests |
+| 20 | Open-source items | SPDX and path scrub in earlier commits; host `0a024dd` installs pinned-core trace requirements with Python 3.13; `66fe088` requires the trace suite to run with zero skips | event/report format document; CI wiring of the missing PMD fault-injection tests |
 
 Added by the 2026-10-30 integration: observation in the 7-lcore layout is not
 supported (the host refuses it at startup), listed after item 12.
@@ -279,13 +279,12 @@ ledger above was published as core `54ea201` after its full check suite passed.
 | --- | --- | --- |
 | Real host-core merge | Done | `0330d83` has two parents and includes `5e5bca1` |
 | Recovered line at the final clock read | Done | `f5db598`; `recovery_at_final_clock_read` first failed on the observed release order 200 then 100; now sends 100 then 200 |
-| Expired retry rejoining a merged burst | Fixed; base-branch PR awaiting review | Reproduced on `hng/core` at `96d2075`; `ce12ef2` validates replacement heads before merging; `5763b3a` merges it into M2 while retaining observer terminal and abort events |
+| Expired retry rejoining a merged burst | Done in the base branch | Reproduced on `hng/core` at `96d2075`; `ce12ef2` validates replacement heads; present in current host core `0a024dd` and merged into M2 |
 | Reject 7-lcore capture before producers | Done | `96c5fb3`; `observer-export` first showed pools and a launched layout, then passed with an empty capture and rejection before pool creation; disabled 7-lcore forwarding also passes |
 
-Retry fix [PR #3](https://github.com/markhhm/DPDS/pull/3) targets `hng/core` from
-`hng/fix-tx-retry-burst`. Both remote `check` jobs passed; the PR was left open
-for review. No protected-base merge was performed. Merging its branch into M2
-also includes the existing `96d2075` affinity-call fix.
+The retry correction is now included in host `hng/core` at `0a024dd`.
+The earlier PR number belongs to the previous repository history and is not a
+pending integration requirement. M2 also retains the `96d2075` affinity-call fix.
 
 Each of the three regressions was run failing before its production fix. The
 retry branch's normal pre-push check passed all 30 Meson tests with zero skips.
@@ -309,17 +308,36 @@ is 180 s. Differential coverage included 1,048,576 events across 32 cases,
 with zero mismatches. This is a single software-only run on a shared machine,
 not a CI timing guarantee or physical performance evidence.
 
-### Remote CI limitation
+### Historical remote CI limitation, resolved after realignment
 
-Host [CI run 41019113194](https://github.com/markhhm/DPDS/actions/runs/41019113194)
-on `96c5fb3` failed before Meson or the regression tests ran. The pinned core's
-check reports: `NumPy is missing or cannot be imported by python3.` The host
-workflow does not install the pinned core's trace requirements. Local checks
-use a prepared Python environment and pass; the remote dependency setup remains
-unfixed. The retry-only PR uses the base branch's earlier core pin and has two
-passing remote checks. No CI check or hook was bypassed.
+Before realignment, host CI failed before Meson with
+`NumPy is missing or cannot be imported by python3.` Host core `0a024dd` now
+installs the pinned core's requirements with Python 3.13. The M2 integration
+at `fed7ea0` passed remote CI, so the missing dependency is no longer open.
+No CI check or hook was bypassed.
 
 The held-trace-plus-cable sealed-bundle fixture (item 12), mixed-population
 faults through actual PMDs (item 18), CSV/spec audit and format documentation
 remain open. Other ledger rows are prior implementation claims, not a new
 independent audit. Further M2 integration requires another independent review.
+
+## Realigned integration and remaining work (2026-10-31)
+
+All commit references in this update use the rewritten history. The earlier
+four-CPU timing is historical software-only evidence, not a new measurement on
+these integration commits.
+
+| Item | Done (commit) | Open |
+| --- | --- | --- |
+| Merge current core into M2 | Core `57af73e` merges `5805604`; full local check and [remote CI](https://github.com/markhhm/DPDS-Core/actions/runs/41108386899) pass | none for this integration |
+| Merge current host and align the pin | Host `fed7ea0` merges `0a024dd` and pins core `57af73e`; local Meson 35/35 with zero skips and [remote CI](https://github.com/markhhm/DPDS/actions/runs/41109396603) pass | none for code integration; see the host submodule pin for the final documentation revision |
+| Required trace execution | Host `66fe088`; actual `test_trace_tools` suite: 29 passed, zero skips; the guard rejects empty, skipped and failed suites | none in the required-suite guard; optional external-source replay remains separate |
+| Shared-egress trace coverage, review item 12 | Existing checker and fixed-line sealed-bundle fixture `e916c9e` | held-trace/cable sealed-bundle tests; precise FAIL versus INCONCLUSIVE assertions |
+| Seven-lcore observation | Startup rejection `96c5fb3` remains active | approved per-writer SPSC/native v2 design; specification §5.3 must be updated before support implementation; retain v1 producer-5 rejection tests |
+| Remaining report and apparatus work | Existing runtime v1 format and Done/Open ledger retained | CSV/spec audit, format documentation, real-PMD mixed-population faults, physical timestamps/calibration and independent review |
+
+The zero-skip requirement applies to the required synthetic trace-tool suite.
+The separate optional external-source replay test may still report a skip when
+its input is not supplied; that skip is not counted as trace-suite execution.
+Seven-lcore support and changes to the runtime v1 report format are not part of
+this integration.

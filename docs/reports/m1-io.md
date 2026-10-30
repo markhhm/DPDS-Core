@@ -9,12 +9,12 @@ review. These results establish neither G2 timing accuracy nor physical
 ## Revisions and scope
 
 - Both milestone branches are `hng/m1-io`, created from `hng/core`.
-- Engine baseline: DPDS-Core `9531a95e15b13801e117d2a0441f8d26d8d16ee4`.
+- Engine baseline: DPDS-Core `e9dc33514f3526a9f588185ca1bb6fe50bcc0206`.
   This milestone changes no engine source, tests, configuration or ABI.
-- Host baseline: DPDS `5cd3b6b23307d39a7a0a4dc48c54520faa5cc17b`.
-- Submitted host: `7e526ddea2e21bcfb68dbed699856ac89cc1f526`.
+- Host baseline: DPDS `899b3d03d77139d6f529e6a28cd694d9ba530e32`.
+- Submitted host: `6fdc1c415ba0ab2367a8fa880b42a6eca0440883`.
   Its core submodule remains pinned to the engine baseline above.
-- M0 push scripts were adopted from core `3f751a0` and host `450d6e4`, with
+- M0 push scripts were adopted from core `ff2e33f` and host `8a4a49f`, with
   SPDX headers added forward. Neither `main` nor `hng/core` is a push target.
 
 The changes reach the independent C oracle, synthetic fixture generators,

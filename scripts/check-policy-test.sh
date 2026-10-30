@@ -2,15 +2,25 @@
 # SPDX-License-Identifier: Apache-2.0
 # Self-test: generic rules and an optional private word list must remain effective.
 set -eu
-unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_PREFIX HNG_POLICY_WORDS_FILE
+for name in $(git rev-parse --local-env-vars); do unset "$name"; done
+unset HNG_POLICY_WORDS_FILE
 policy="$(cd "$(dirname "$0")" && pwd)/check-policy.sh"
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 fails=0
 printf '%s\n' fictional-host fictional-worker > "$work/words.txt"
+owner=captainhung096@gmail.com
+metadata_commit() {
+    printf '%b\n' "$3" > "$work/message"
+    GIT_AUTHOR_NAME=Mark GIT_AUTHOR_EMAIL="$1" \
+    GIT_COMMITTER_NAME=Mark GIT_COMMITTER_EMAIL="$2" \
+        git -c commit.gpgsign=false commit -q --allow-empty -F "$work/message"
+}
 fresh() {
     rm -rf "$work/repo" && mkdir -p "$work/repo/scripts" && cd "$work/repo"
     git init -q .
+    metadata_commit upstream@example.invalid upstream@example.invalid "upstream baseline"
+    git update-ref refs/remotes/origin/main HEAD
     printf '# SPDX-License-Identifier: Apache-2.0\n' > scripts/spdx-exempt.txt
     printf '# SPDX-License-Identifier: Apache-2.0\n' > scripts/env-allow.txt
     printf '// SPDX-License-Identifier: Apache-2.0\nfn main() {}\n' > ok.rs
@@ -45,4 +55,18 @@ fresh; printf '<!-- SPDX-License-Identifier: Apache-2.0 -->\nversion 110.0.0.5 a
 fresh; export HNG_POLICY_WORDS_FILE="$work/words.txt"; printf '<!-- SPDX-License-Identifier: Apache-2.0 -->\nthe fictional-host station\n' > doc.md
 printf 'doc.md:the fictional-host station\n' >> scripts/env-allow.txt; git add -A; expect pass "allowlisted line"
 printf 'another fictional-host\n' >> doc.md; git add -A; expect fail "allowlist entry covers only its own text"
+
+fresh; git add -A; metadata_commit "$owner" "$owner" "owner change"; expect pass "owner metadata"
+fresh; git add -A; metadata_commit upstream@example.invalid upstream@example.invalid "upstream change"
+git update-ref refs/remotes/origin/main HEAD; expect pass "upstream metadata is outside the checked range"
+fresh; git add -A; metadata_commit other@example.invalid "$owner" "owner change"; expect fail "wrong author email"
+fresh; git add -A; metadata_commit "$owner" other@example.invalid "owner change"; expect fail "wrong committer email"
+fresh; git add -A; metadata_commit "$owner" noreply@github.com "web merge"; expect pass "GitHub committer exception"
+fresh; git add -A; metadata_commit "$owner" "$owner" "owner change\n\ncO-aUtHoReD-bY: Someone <human@example.invalid>"; expect fail "all co-author trailers are rejected"
+fresh; git add -A; metadata_commit "$owner" "$owner" "owner change\n\nTool-Session: reference"; expect fail "generic session signature"
+fresh; git add -A; metadata_commit "$owner" "$owner" "owner change\n\nGenerated with [Tool]"; expect fail "generated signature"
+fresh; git add -A; metadata_commit "$owner" "$owner" "owner change\n\n🤖 Generated with [Tool]"; expect fail "prefixed generated signature"
+fresh; git add -A; metadata_commit "$owner" "$owner" "data was generated with a fixed seed"; expect pass "ordinary generated prose"
+fresh; git add -A; git update-ref -d refs/remotes/origin/main; expect fail "missing upstream baseline"
+fresh; git add -A; git rev-parse HEAD > .git/shallow; expect fail "shallow history"
 exit "$fails"

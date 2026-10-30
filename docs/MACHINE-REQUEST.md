@@ -5,6 +5,26 @@
 Date: 2026-10-29. Testbed edition; replaces the earlier new-hardware request.
 Status: requirements and measurement plan only; no hardware accessed or configured.
 
+## Summary of the request
+
+**What is asked** (existing testbed hardware only, after the Stage 2 main scenario finishes; details in sections 3 and 8–11):
+
+- **Hardware and time:** host A (DUT, one 100G adapter in variant A), host C (traffic generator and sink), Tofino switch 1, in dedicated windows run by the testbed owner's operator. P1 sessions never connect to the testbed.
+- **Hugepages:** node-local hugepages on host A's DUT-adapter node, **minimum 20 GiB, 40 GiB preferred** (section 11).
+- **P4 program and mirror:** permission to run a timestamping P4 program on Tofino switch 1, and a SPAN mirror of the DUT-facing port for the 10G cross-check (sections 4 and 5).
+
+**Questions** (full wording in section 8; numbering is shared):
+
+1. Free disk space.
+2. Hugepage reservation: minimum 20 GiB, 40 GiB preferred, and RAM per NUMA node.
+3. Bare metal or VM with PCI passthrough; reservable cores; host A CPU model, frequency, SMT and isolcpus.
+4. Permission for the P4 program and the SPAN mirror on Tofino switch 1.
+5. Tofino timestamp capability, width, resolution, wrap, and the fallback if absent.
+6. Variant B: enabling the down 100G link.
+7. PCIe retrain procedure and permission to run it at each session start.
+8. Window length and number of sessions.
+9. IOMMU groups and in-guest hugepages with matching vNUMA (if a VM).
+
 ## 1. Decision and boundary
 
 **Decision (project owner, 2026-10-29):** no new or borrowed hardware. P1 uses only the equipment that already exists in the shared P4 testbed. The earlier three-machine/two-machine proposal is kept only as [Appendix A](#appendix-a-future-hardware-not-available).
@@ -122,16 +142,17 @@ Full per-packet recording for a whole cell would be `280.36 B × 8.106e6/s × 60
 - **P1 gets no testbed time until the Stage 2 main scenario finishes.** The testbed owner schedules M5 and later after that; the earliest window is estimated at **mid-to-late November 2026** (*estimate*).
 - The Tofino switches are also used under a separate loan arrangement; any P4 program swap on Tofino switch 1 must fit that arrangement.
 
-Open questions for the testbed owner:
+Open questions for the testbed owner (the cover section lists them by number; keep this list as the single source of wording):
 
 1. Free disk space on host A and host C (and in the VMs that would run the DUT and the oracle); section 7 gives the need per cell.
-2. RAM per NUMA node on host A, and whether a boot-time reservation of node-local hugepages is possible on the DUT-adapter node: **40 GiB requested** (40 × 1 GiB or 20,480 × 2 MiB pages) for cable + LEO in both directions, minimum 20 GiB for one line per direction (section 11). That node must also hold about 2.5 GiB of ordinary-heap core metadata plus OS headroom, so it needs at least 64 GiB of RAM.
-3. Whether the DUT may run bare metal on host A or only as a VM with PCI passthrough, and which cores can be reserved (other teams' VMs share the host).
+2. RAM per NUMA node on host A, and whether a boot-time reservation of node-local hugepages is possible on the DUT-adapter node: **minimum 20 GiB, 40 GiB preferred** (20 or 40 × 1 GiB, or 10,240 or 20,480 × 2 MiB pages). Why: variant A is a one-port loop that carries one 100G stream at a time, so one modeled direction at full rate needs 19.413 GiB of hugepages for cable + LEO and 20 GiB suffices; 40 GiB (38.826 GiB) is needed only if both directions must hold full-rate storage concurrently (variant B or a two-direction model). Section 11 gives the calculator commands; the figures are verified with 4 KiB pages only. That node must also hold about 1.2–2.5 GiB of ordinary-heap core metadata plus OS headroom, so it needs at least 64 GiB of RAM for the 40 GiB ask.
+3. Whether the DUT may run bare metal on host A or only as a VM with PCI passthrough, and which cores can be reserved (other teams' VMs share the host). Also: host A's CPU model and sustained frequency, whether SMT is on, and whether `isolcpus` (or an equivalent cpuset) can isolate the reserved cores.
 4. Whether a P1 timestamping P4 program, or the Stage 2 program if it already exposes these timestamps, may run on Tofino switch 1 during P1 windows; and whether SPAN mirroring of the DUT-facing port is allowed for the 10G cross-check.
-5. Whether the Tofino SDE/NOS exposes ingress MAC and egress timestamps and a port loopback mode (section 9, item 7).
+5. Whether the Tofino SDE/NOS exposes ingress MAC and egress timestamps and a port loopback mode (section 9, item 7); the timestamp width, resolution and wrap period; and the fallback if the SDE exposes none (without a switch timestamp the planned primary OWD source of section 4 does not exist, and the project falls back to the mirror method of section 5, step 4, at 10G only).
 6. For variant B: whether the down 100G link from host A's second adapter to the aggregation switch may be enabled.
-7. Whether host C's PCIe retrain after VM start is reliable at every session start.
-8. Window length per session and how many sessions; the matrix of section 14 is sized to fit them.
+7. The procedure for the PCIe root-port retrain that restored 8 GT/s on host C after a VM start (section 2), and permission to run it, or have it run, at the start of every session, with a check (`LnkSta`) that the link is at 8 GT/s before measuring.
+8. Window length per session and how many sessions. The plan of section 14 does not fix a cell count (the matrix is registered later), so the number cannot be derived from this document; an *estimate* for planning: about 40 cells at 10G and 10 at 100G, three ten-minute steady-state repeats each (about 25 h of steady state), plus calibration and bypass runs, which is about 5 to 6 sessions of 6 h each. Which windows, and how long, can the testbed owner give?
+9. If the DUT is a VM: IOMMU state on host A and the IOMMU group of the DUT adapter (safe for PF passthrough), and whether hugepages can be reserved inside the guest with vNUMA matching the adapter's host node.
 
 ## 9. Pre-flight checklist (read-only, for the testbed owner)
 

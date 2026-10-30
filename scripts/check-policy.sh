@@ -11,6 +11,7 @@
 #      locally configured IPv4 addresses. A hit is allowed only by an exact
 #      "path:fixed text" line in scripts/env-allow.txt.
 #      Only this script and the allowlist itself are excluded from the scan.
+# OS3: commits after upstream main use the owner's email and no shared/tool signatures.
 set -eu
 cd "$(git rev-parse --show-toplevel)"
 status=0
@@ -52,4 +53,29 @@ if [ -n "$hits" ]; then
         }
         END { exit bad }' || status=1
 fi
+
+check_owner_metadata() {
+    shallow=$(git rev-parse --is-shallow-repository) || return 1
+    if [ "$shallow" != false ] || ! git rev-parse --verify 'refs/remotes/origin/main^{commit}' >/dev/null 2>&1; then
+        echo "OS3 requires full history and origin/main; fetch both before checking." >&2
+        return 1
+    fi
+    metadata=$(git log --format='%H%x09%ae%x09%ce' origin/main..HEAD) || return 1
+    metadata_status=0
+    printf '%s\n' "$metadata" | awk -F '\t' -v owner=captainhung096@gmail.com '
+        NF && (NF != 3 || $2 != owner || ($3 != owner && $3 != "noreply@github.com")) {
+            print "OS3 unexpected author/committer email: " $1 > "/dev/stderr"; bad = 1
+        }
+        END { exit bad }' || metadata_status=1
+    commits=$(git rev-list origin/main..HEAD) || return 1
+    for oid in $commits; do
+        message=$(git show -s --format=%B "$oid") || return 1
+        if printf '%s\n' "$message" | grep -Eiq '^[[:space:]]*([^[:alnum:]]+[[:space:]]*)?(Co-Authored-By[[:space:]]*:|[^[:space:]:]+-Session[[:space:]]*:|Generated[[:space:]]+with([[:space:]]|$))'; then
+            echo "OS3 prohibited commit signature: $oid" >&2
+            metadata_status=1
+        fi
+    done
+    return "$metadata_status"
+}
+check_owner_metadata || status=1
 exit "$status"

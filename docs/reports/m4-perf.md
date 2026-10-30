@@ -560,3 +560,46 @@ marks, sealing and ledger drain before the implementation changed.
 The candidate passed the full Rust test suite and all 30 host tests,
 including the split golden and integrity oracles, using its own library.
 The implementation and characterization test are saved as a local patch.
+
+### 2. Store integer completion time in the service ledger
+
+The main service clock remains exact `u128` arithmetic. A ledger entry now
+stores the already computed `u64 service_ns = ceil(finish / C)`, instead of
+the rational `u128 finish`. For any integer clock tick,
+`ceil(finish / C) <= now` iff `finish <= now * C`, so Q releases at exactly
+the same tick without a base/offset representation. This also removes the
+128-bit multiplication in `release_q()`. Ledger entries shrink from 32 to
+16 bytes; the metadata query and pool calculator use 144 instead of 160
+bytes per slot. This is an allocation-size change, not a packet-timing change.
+
+Before the change, the new characterization test passed against the old
+implementation. It checks 72 combinations of four rates (including a
+non-dividing rate and `u64::MAX`), three clocks (including near `u64::MAX`),
+sealed/open input, and accepted/trace-loss/trace-outage packets. It compares
+Q occupancy just before and at each integer completion with a rational
+oracle. The metadata test failed at 160 vs 144 bytes before the change and
+passed afterwards.
+
+As a noise control, identical copies of the baseline ran 15 A/A rounds at
+load 4.09-5.77. Production-sized paired medians were +0.54 / +0.45 ns
+(ranges -5.43..+6.66 / -7.06..+12.63); small medians were -1.12 / -0.45 ns
+(-4.31..+4.70 / -2.72..+2.32). A single sub-nanosecond result is insufficient.
+
+Ledger A/B ran twice, 15 rounds each. The first set, load 2.89-9.21, gave
+production-sized paired medians -2.24 / -2.34 ns, faster in 12/15 and 10/15.
+The second, load 4.09-6.09, gave -2.82 / -2.67 ns, faster in 12/15 for both
+owners. Combined **30 rounds**, retaining every outlier, load **2.89-9.21**:
+
+| Fixture | Owner | Old p50 median | New p50 median | Paired difference median (range) | New faster |
+|---|---|---:|---:|---:|---:|
+| small | port 0 | 55.45 | 53.18 | -2.00 (-30.88..+38.61) | 21/30 |
+| small | port 1 | 56.43 | 54.81 | -1.63 (-30.51..+34.75) | 18/30 |
+| production-sized | port 0 | 61.68 | 58.89 | -2.50 (-40.07..+13.11) | 24/30 |
+| production-sized | port 1 | 62.52 | 59.86 | -2.49 (-39.93..+22.73) | 22/30 |
+
+**Kept:** both production-sized owners improve in both 15-round sets, by
+more than the A/A median offsets. The full Rust suite and all 30 host tests
+passed against the candidate library, including golden/oracle and pool
+calculator checks. The production-sized variant's p50 medians are below
+60 ns, but its per-run p50 ranges are 56.47-94.52 / 57.68-95.20 ns on this
+shared machine. This does not establish a stable 60 ns bound or 100G operation.

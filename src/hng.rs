@@ -286,7 +286,7 @@ impl<T: Copy> Ring<T> {
 }
 
 struct Service {
-    finish: u128,
+    service_ns: u64,
     l2_bytes: u64,
 }
 
@@ -335,7 +335,7 @@ impl HngBuffer {
         let late = Ring::new(config.storage_capacity_packets, empty)
             .map_err(|_| "late storage allocation failed")?;
         service.resize_with(service.capacity(), || Service {
-            finish: 0,
+            service_ns: 0,
             l2_bytes: 0,
         });
         service.clear();
@@ -522,7 +522,10 @@ impl HngBuffer {
         };
         self.finish = finish;
         self.trace_cursor = trace_cursor;
-        self.service.push_back(Service { finish, l2_bytes });
+        self.service.push_back(Service {
+            service_ns,
+            l2_bytes,
+        });
         self.stats.q_bytes += l2_bytes;
         self.stats.q_high_water_bytes = self.stats.q_high_water_bytes.max(self.stats.q_bytes);
         if let Some(result) = trace_drop {
@@ -578,8 +581,8 @@ impl HngBuffer {
     /// Release Q on service completion, independently of propagation storage.
     fn release_q(&mut self, now_ns: u64) {
         self.stats.ledger_watermark_ns = now_ns;
-        let now = u128::from(now_ns) * u128::from(self.config.c_bps);
-        while self.service.front().is_some_and(|s| s.finish <= now) {
+        // Integer clocks: ceil(finish / C) <= now iff finish <= now * C.
+        while self.service.front().is_some_and(|s| s.service_ns <= now_ns) {
             self.stats.q_bytes -= self.service.pop_front().unwrap().l2_bytes;
         }
     }

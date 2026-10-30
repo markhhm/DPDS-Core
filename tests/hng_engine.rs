@@ -345,12 +345,12 @@ fn merged_pop_matches_a_host_side_merge() {
     assert_eq!(manual, run(true));
 }
 
-/// FIFO entries are one 64-byte cache line; the ledger entry stays 32 bytes.
+/// FIFO entries are one 64-byte cache line; the ledger needs only 16 bytes.
 #[test]
 fn stored_packets_fit_one_cache_line() {
     assert_eq!(
         dpds_core::hng_engine::hng_slot_metadata_bytes(),
-        2 * 64 + 32
+        2 * 64 + 16
     );
 }
 

@@ -523,3 +523,137 @@ core-side prefetch of the FIFO slots helped.
 - Transparent huge pages for the FIFOs, and measurement on an idle or isolated
   fixed-frequency core: the remaining gap (about 2-3 ns) is smaller than the
   run-to-run spread on this machine, so the gate can only be judged there.
+
+## Round 5: counter, ledger and merged-dequeue experiments (2026-10-30)
+
+Starting revisions: DPDS `96d2075`, DPDS-Core `1fa417c`. Same shared WSL2
+machine, 4 KiB pages, no frequency control or isolation; other builds could
+run concurrently. These are software reference measurements, not evidence
+for 100 Gbit/s. The baseline full checks passed in both repositories (all
+30 host tests ran; the core Python suite retained its one expected skip).
+
+Each variant snapshots the unchanged host binary and its own core library.
+One round runs old and new back to back in alternating order, for both
+fixtures and owners on CPUs 2/6/10, with at least 15 rounds per comparison.
+Differences below are paired p50 **new minus old**, in ns/packet. The load
+range is the one-minute load sampled after every benchmark invocation.
+
+### 1. Derive redundant statistics off the packet path
+
+Tried deriving accepted/dequeued L2 bytes from payload bytes, packet counts
+and separately accumulated padding for frames shorter than 60 mbuf bytes.
+Admission watermark and input-complete status also came from existing state.
+The C statistics layout and all values stayed unchanged. A characterization
+test pinned padding, partial dequeues, Q/storage/invalid rejections, high-water
+marks, sealing and ledger drain before the implementation changed.
+
+15 paired rounds; load **3.31-5.14**:
+
+| Fixture | Owner | Old p50 median | New p50 median | Paired difference median (range) | New faster |
+|---|---|---:|---:|---:|---:|
+| small | port 0 | 55.94 | 55.15 | -0.79 (-7.00..+12.09) | 11/15 |
+| small | port 1 | 57.14 | 56.46 | -0.51 (-6.50..+26.59) | 8/15 |
+| production-sized | port 0 | 61.05 | 60.16 | -0.60 (-4.13..+18.62) | 10/15 |
+| production-sized | port 1 | 61.68 | 61.31 | -0.55 (-1.95..+18.95) | 10/15 |
+
+**Not kept:** the sub-nanosecond differences are inside the observed noise.
+The candidate passed the full Rust test suite and all 30 host tests,
+including the split golden and integrity oracles, using its own library.
+The implementation and characterization test are saved as a local patch.
+
+### 2. Store integer completion time in the service ledger
+
+The main service clock remains exact `u128` arithmetic. A ledger entry now
+stores the already computed `u64 service_ns = ceil(finish / C)`, instead of
+the rational `u128 finish`. For any integer clock tick,
+`ceil(finish / C) <= now` iff `finish <= now * C`, so Q releases at exactly
+the same tick without a base/offset representation. This also removes the
+128-bit multiplication in `release_q()`. Ledger entries shrink from 32 to
+16 bytes; the metadata query and pool calculator use 144 instead of 160
+bytes per slot. This is an allocation-size change, not a packet-timing change.
+
+Before the change, the new characterization test passed against the old
+implementation. It checks 72 combinations of four rates (including a
+non-dividing rate and `u64::MAX`), three clocks (including near `u64::MAX`),
+sealed/open input, and accepted/trace-loss/trace-outage packets. It compares
+Q occupancy just before and at each integer completion with a rational
+oracle. The metadata test failed at 160 vs 144 bytes before the change and
+passed afterwards.
+
+As a noise control, identical copies of the baseline ran 15 A/A rounds at
+load 4.09-5.77. Production-sized paired medians were +0.54 / +0.45 ns
+(ranges -5.43..+6.66 / -7.06..+12.63); small medians were -1.12 / -0.45 ns
+(-4.31..+4.70 / -2.72..+2.32). A single sub-nanosecond result is insufficient.
+
+Ledger A/B ran twice, 15 rounds each. The first set, load 2.89-9.21, gave
+production-sized paired medians -2.24 / -2.34 ns, faster in 12/15 and 10/15.
+The second, load 4.09-6.09, gave -2.82 / -2.67 ns, faster in 12/15 for both
+owners. Combined **30 rounds**, retaining every outlier, load **2.89-9.21**:
+
+| Fixture | Owner | Old p50 median | New p50 median | Paired difference median (range) | New faster |
+|---|---|---:|---:|---:|---:|
+| small | port 0 | 55.45 | 53.18 | -2.00 (-30.88..+38.61) | 21/30 |
+| small | port 1 | 56.43 | 54.81 | -1.63 (-30.51..+34.75) | 18/30 |
+| production-sized | port 0 | 61.68 | 58.89 | -2.50 (-40.07..+13.11) | 24/30 |
+| production-sized | port 1 | 62.52 | 59.86 | -2.49 (-39.93..+22.73) | 22/30 |
+
+**Kept:** both production-sized owners improve in both 15-round sets, by
+more than the A/A median offsets. The full Rust suite and all 30 host tests
+passed against the candidate library, including golden/oracle and pool
+calculator checks. The production-sized variant's p50 medians are below
+60 ns, but its per-run p50 ranges are 56.47-94.52 / 57.68-95.20 ns on this
+shared machine. This does not establish a stable 60 ns bound or 100G operation.
+
+### 3. Reuse the selected FIFO during merged dequeue
+
+Both trials compare with the retained ledger change. Before implementation,
+a characterization test pinned the full output records across ordinary/late
+and cross-line release ties, clock/watermark/limit boundaries, NULL output,
+empty output, and open/sealed service-ledger accounting.
+
+First, the merge retained the entire selected `HngPacket` for dequeue,
+avoiding both another FIFO selection and another record expansion. This was
+a regression: 15 rounds, load **3.15-5.61**, production-sized paired medians
+**+21.54 (-0.42..+29.05) / +21.86 (+19.35..+40.38) ns**, faster in 1/15 and
+0/15. Small paired medians were +21.21 (-2.87..+34.83) / +21.26
+(-5.35..+28.64). **Not kept; saved as a local patch.**
+
+The smaller version retains only the head's late/ordinary flag with its
+merge key. Dequeue pops that FIFO directly, then expands its entry once.
+It avoids a second `ordinary_first()` without keeping a full record in
+the merge candidate. Single-line `try_pop()` reuses the same selection;
+abort-only `pop()` still selects its head normally. Readiness, custody,
+tie-breaking and ledger aging are unchanged; no C ABI changes.
+
+15 rounds; load **2.12-2.62**:
+
+| Fixture | Owner | Old p50 median | New p50 median | Paired difference median (range) | New faster |
+|---|---|---:|---:|---:|---:|
+| small | port 0 | 51.91 | 50.61 | -0.73 (-3.85..+2.48) | 9/15 |
+| small | port 1 | 52.31 | 52.19 | -0.20 (-4.08..+1.52) | 9/15 |
+| production-sized | port 0 | 57.42 | 56.21 | -1.29 (-4.30..+3.35) | 13/15 |
+| production-sized | port 1 | 58.70 | 57.16 | -1.68 (-3.00..+0.33) | 14/15 |
+
+**Kept:** the production-sized owners improve in 13/15 and 14/15 rounds,
+with median gains exceeding the A/A offsets. The small-fixture differences
+are inside the noise. Both trial implementations passed the full Rust
+suite and all 30 host tests, including the split golden and integrity
+oracles, using each trial's own library. A second flag-only A/B set has not
+been run; the evidence for this incremental gain is these 15 pairs.
+
+### Reference gate result and remaining work
+
+**The per-owner p50 median criterion is reached in these WSL2 reference
+measurements.** The ledger alone gave production-sized owner medians
+58.05 / 59.85 ns and 59.38 / 59.86 ns in its two 15-round sets. With the FIFO
+flag change, the quieter 15-round set gave **56.21 / 57.16 ns**. These are
+medians of per-run p50 values, following Round 4's reporting method, not a
+claim that every run is below 60 ns. The two incremental gains must not be
+added as a measured combined improvement: their comparisons had different
+load ranges. No NIC/NUMA/hugepage/100G or isolated fixed-frequency validation
+was done. Those hardware gates remain separate.
+
+The host submodule pin is unchanged: the core PR must merge before the host
+advances its dependency. Work is frozen before PR creation and another
+benchmark set. Raw paired measurements and rejected patches are retained
+locally; none of the rejected implementation changes remain in this branch.

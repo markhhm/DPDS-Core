@@ -29,7 +29,7 @@ fixtures and submodule pin during M0. Raw logs are append-only in own outbox.
 
 ## Steps / ledger
 
-- [x] Reproduce core 9531a95 and host 5cd3b6b in clean clones: 42/42 and 9/9.
+- [x] Reproduce core e9dc335 and host 899b3d0 in clean clones: 42/42 and 9/9.
 - [x] RED: both missing hook installers fail before implementation.
 - [x] Add minimal installers/hooks; run actual deliberate-failure commits
   locally, verify rejection, discard only these authorized commits, then green.

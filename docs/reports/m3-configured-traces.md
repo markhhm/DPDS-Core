@@ -13,7 +13,7 @@ eligibility, exact corridors, finite terminal HOLD and synthetic outages.
 
 ## Integration and implementation
 
-Integrated core commit `4655e81768f189970b0227a6782c7d767ab28c55` with a merge,
+Integrated core commit `97ba6f928176226ba52b0ddb2d709cf30e2d7b74` with a merge,
 preserving the work branch's history. The existing hook is installed, and the
 shared check script now runs synthetic Python tests as well as policy, Rust
 formatting, Clippy and Rust tests. CI uses that same script with NumPy installed.

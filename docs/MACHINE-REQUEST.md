@@ -173,9 +173,9 @@ All checks only read state; none changes configuration. Replace `<...>` with loc
 
 | Source | Pinned revision and inspected material | Consequence |
 |---|---|---|
-| HNG contract | This branch's `d5df0b7`, [HNG-DESIGN.md](HNG-DESIGN.md), including trace/VLAN additions | Four independent `(line, direction)` C/Q states, long-delay storage and full-flow observation requirements |
-| [DPDS host][host] | `a0f9cd2521a1dc514c6a2fb4a8e02e1b8eac9252` (branch `hng/core`); README, configuration, receive/scheduler/transmit paths, M4 reports `m4-io-split.md`, Meson and Dockerfile | **Code:** one or two ports, one RX/TX queue per port, 2–7 lcores. The 7-lcore layout has, per direction, its own RX, scheduler and TX lcore, plus the main lcore; each scheduler owns that direction's cable and LEO states. TX merges the pending frames of all eligible lines of an egress port into one burst of up to 16 frames |
-| [DPDS-Core][core] | `c5243a477084800f11e2947cd7e8390087fb8df2` (branch `hng/core`); Cargo metadata, README and HNG engine/trace/buffer sources | **Code:** Rust scheduling is independent of DPDK and physical NICs. Two packet FIFOs and a service ledger reserve capacity through the ordinary allocator; mbuf hugepages are not the whole memory requirement |
+| HNG contract | This branch's `c0b152a`, [HNG-DESIGN.md](HNG-DESIGN.md), including trace/VLAN additions | Four independent `(line, direction)` C/Q states, long-delay storage and full-flow observation requirements |
+| [DPDS host][host] | `e0d2c3ba858f159f98274b4089fa3cce3a332419` (branch `hng/core`); README, configuration, receive/scheduler/transmit paths, M4 reports `m4-io-split.md`, Meson and Dockerfile | **Code:** one or two ports, one RX/TX queue per port, 2–7 lcores. The 7-lcore layout has, per direction, its own RX, scheduler and TX lcore, plus the main lcore; each scheduler owns that direction's cable and LEO states. TX merges the pending frames of all eligible lines of an egress port into one burst of up to 16 frames |
+| [DPDS-Core][core] | `7a2e39daa6691297d4bf481ed37818073ead28f6` (branch `hng/core`); Cargo metadata, README and HNG engine/trace/buffer sources | **Code:** Rust scheduling is independent of DPDK and physical NICs. Two packet FIFOs and a service ledger reserve capacity through the ordinary allocator; mbuf hugepages are not the whole memory requirement |
 | Internal Stage 1 target-check method (not public) | Method description read from the internal source without executing it; no public revision to pin | **Code:** capture before/after the emulator in one VM clock domain, pair by flow and sequence, compare with t plus the selected-late increment. The method is awaiting a second review; treat it as a method reference, not an approved hardware result |
 
 **Code:** the host records relative software RX time from `host_now_ns()` and TX-submit lateness. These are not per-packet wire timestamps. The complete independent observation/export/pairing path required in section 14 is still a software-stage deliverable.
@@ -205,7 +205,7 @@ All checks only read state; none changes configuration. Replace `<...>` with loc
 
 **Estimate:** at 100G, a 1500-byte IP packet without VLAN occupies 1,538 bytes on the wire, approximately 8.127 Mpps per direction. With one retained VLAN tag, L2 including FCS is 1,522 bytes and line accounting is 1,542 bytes, approximately **8.106 Mpps**.
 
-**M4 pool calculator** ([M4 report][m4], round 2 "Memory and calculator"; the host `hng-pool-calc` now defaults to 7 lcores, DPDS `a0f9cd2`). Reproduced on 2026-10-30 with the host binary built from that revision, by this command (the `--c-bps` value must be written out in full; `100e9` is not parsed):
+**M4 pool calculator** ([M4 report][m4], round 2 "Memory and calculator"; the host `hng-pool-calc` now defaults to 7 lcores, DPDS `e0d2c3b`). Reproduced on 2026-10-30 with the host binary built from that revision, by this command (the `--c-bps` value must be written out in full; `100e9` is not parsed):
 
 ```text
 hng-pool-calc --c-bps 100000000000 --t-ms 142 --delta-ms 320 --q-ms 50 --burst 1024            # one line per direction
@@ -335,9 +335,9 @@ Kept for a possible later request; **none of this exists or is requested now.** 
 
 Vendor/DPDK sources checked on 2026-10-29. Pinned code, project decisions and calculations are distinguished above. No third-party code or datasets are redistributed by this document.
 
-[host]: https://github.com/markhhm/DPDS/tree/a0f9cd2521a1dc514c6a2fb4a8e02e1b8eac9252
-[core]: https://github.com/markhhm/DPDS-Core/tree/c5243a477084800f11e2947cd7e8390087fb8df2
-[docker]: https://github.com/markhhm/DPDS/blob/a0f9cd2521a1dc514c6a2fb4a8e02e1b8eac9252/.devcontainer/Dockerfile
+[host]: https://github.com/markhhm/DPDS/tree/e0d2c3ba858f159f98274b4089fa3cce3a332419
+[core]: https://github.com/markhhm/DPDS-Core/tree/7a2e39daa6691297d4bf481ed37818073ead28f6
+[docker]: https://github.com/markhhm/DPDS/blob/e0d2c3ba858f159f98274b4089fa3cce3a332419/.devcontainer/Dockerfile
 [cx6]: https://networking-docs.nvidia.com/connectx6dxhw/introduction
 [cx5]: https://docs.nvidia.com/networking/display/nvidia-connectx-5-ethernet-adapter-cards-user-manual.pdf
 [cx4]: https://networking-docs.nvidia.com/connectx4vpihw/specifications
@@ -354,6 +354,6 @@ Vendor/DPDK sources checked on 2026-10-29. Pinned code, project decisions and ca
 [null]: https://doc.dpdk.org/guides-26.03/nics/null.html
 [ring]: https://doc.dpdk.org/guides-26.03/nics/ring.html
 [pcap]: https://doc.dpdk.org/guides-26.03/nics/pcap.html
-[m4]: https://github.com/markhhm/DPDS-Core/blob/c5243a477084800f11e2947cd7e8390087fb8df2/docs/reports/m4-perf.md
+[m4]: https://github.com/markhhm/DPDS-Core/blob/7a2e39daa6691297d4bf481ed37818073ead28f6/docs/reports/m4-perf.md
 [afpacket]: https://doc.dpdk.org/guides-26.03/nics/af_packet.html
 

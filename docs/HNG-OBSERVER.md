@@ -12,10 +12,10 @@ The controlling project task is the M2 specification request and roadmap OS1–O
 
 | Source | Revision | Used for |
 |---|---|---|
-| Engine contract | DPDS-Core `d5df0b7` | Exact C/Q, counter selection, monotone trace, frontier and order semantics |
-| Core implementation/API | DPDS-Core `9531a95e15b13801e117d2a0441f8d26d8d16ee4` | Current line/configuration/trace support and custody boundary |
-| Host | DPDS `5cd3b6b23307d39a7a0a4dc48c54520faa5cc17b` | Physical ingress ordinal, software arrival time, TX and resource counters |
-| M2 draft | DPDS `22368d97f1c6ad0ad238a2ecc03358eababa50a1`, `tools/g2/` | Independent Fraction reference, CLI, sampling domain, report and probe compatibility |
+| Engine contract | DPDS-Core `c0b152a` | Exact C/Q, counter selection, monotone trace, frontier and order semantics |
+| Core implementation/API | DPDS-Core `e9dc33514f3526a9f588185ca1bb6fe50bcc0206` | Current line/configuration/trace support and custody boundary |
+| Host | DPDS `899b3d03d77139d6f529e6a28cd694d9ba530e32` | Physical ingress ordinal, software arrival time, TX and resource counters |
+| M2 draft | DPDS `488388cfb3d5237c1afd3f39659f7b160c7b501d`, `tools/g2/` | Independent Fraction reference, CLI, sampling domain, report and probe compatibility |
 | Stage 1 method | Stage 1 measurement repository at commit `de035a63f5d0135ee70b0bceb27d5051897b85a1` (not public; its location is recorded in the private deployment manifest) | Target-check document/runner, `target_rate_metrics.py`, `target_rate_check.py`, probe emitter; **pending second review** |
 
 Normative terms: **MUST** is required for this contract; **proposal** or **estimate** is an engineering choice to register before a run. Vendor capabilities below cite primary sources; no hardware performance is asserted.

@@ -1,0 +1,7 @@
+# SPDX-License-Identifier: Apache-2.0
+# Independent Step 2 reference output; generation: tests/fixtures/README.md
+# Synthetic fixture: seed 1, 0..15 ms, adaptive 0.05 ms, no offset.
+# KEEP_us,LATENCY_ns,JITTER_ns,RATE_bps,LOSS_u32,LIMIT_pkts,DUP_PROB,DUP_DELAY,ROUTE_ID,QUEUE_ID
+3949,20000000,0,100000000,0,834,0,0,1,0
+5601,50000000,0,100000000,0,834,0,0,2,0
+5450,20000000,0,100000000,0,834,0,0,3,0

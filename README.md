@@ -17,15 +17,15 @@ The host owns DPDK I/O. Functional acceptance uses fake-clock tests and the
 `net_null`, `net_ring`, pcap and `af_packet` virtual devices before physical
 accuracy or throughput qualification.
 
-For the proposed bidirectional 100GbE qualification, reserve two data ports
-with a Gen4 x16 adapter or two independent Gen3 x16 adapters, eight physical
-data-plane cores plus control/observer cores, and at least 64 GiB RAM including
-40 GiB of node-local hugepages for cable + LEO in both directions (M4 pool
-calculator: 38.826 GiB; see docs/MACHINE-REQUEST.md section 11). Keep NICs, host cores and packet memory on the
-same NUMA node where possible. These are workload-dependent estimates; the
-inspected host supports at most four lcores; the reservation anticipates a
-future scheduler per direction, subject to performance validation. Neither ConnectX-4 nor ConnectX-5 is
-mandatory.
+Physical qualification uses existing testbed hardware; see
+[MACHINE-REQUEST.md](docs/MACHINE-REQUEST.md). It asks for one 100G DUT adapter,
+eight reserved cores (seven data-plane lcores, an RX, a scheduler and a TX per
+direction, plus main) and node-local hugepages: minimum 20 GiB, 40 GiB
+preferred (M4 pool calculator: 19.413 GiB for one direction at full rate with
+cable + LEO, 38.826 GiB for both directions). Keep NICs, host cores and packet
+memory on the same NUMA node where possible. These are workload-dependent
+estimates: the per-scheduler p50 <= 60 ns target is not yet met and no 100G
+throughput has been measured. Neither ConnectX-4 nor ConnectX-5 is mandatory.
 
 The candidate host stack is Ubuntu Server 24.04 LTS with kernel 6.8 and DPDK
 26.03, subject to qualification of the exact NIC, firmware and driver stack.
@@ -96,6 +96,23 @@ with a rate adaptive exponential moving average (EMA). The smoothing weight
 is derived from the configured `half_life_period_ns` and the measured packet
 rate, so the *effective* correlation half-life stays constant in wall-clock time
 regardless of how fast packets arrive.
+
+## Quickstart (no NIC, no DPDK)
+
+The engine needs only a stable Rust toolchain:
+
+```sh
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh   # if Rust is missing
+git clone https://github.com/markhhm/DPDS-Core.git dpds-core
+cd dpds-core
+cargo build --release --locked
+cargo test --locked
+```
+
+`cargo test` runs the legacy and HNG engine tests, including the scheduler
+oracle fixtures. To push real packets through the engine without a physical
+NIC, use the DPDS host, which embeds this repository as a submodule: its README
+quickstart runs the `net_null` and `net_pcap` software ports.
 
 ## Building
 
@@ -221,6 +238,88 @@ in [`config.example.json`](config.example.json):
   - `h` — probability of correct transmission while in the Bad state
   - `state_is_good` — initial state flag (always reset to `true`/Good on startup)
 
+## HNG implementation
+
+The HNG engine, C ABI, VLAN-line configuration and normalized trace schema are
+documented in [docs/HNG-API.md](docs/HNG-API.md). Its contract is
+[docs/HNG-DESIGN.md](docs/HNG-DESIGN.md). The upstream APIs above remain available.
+
+The [trace pipeline inventory](docs/reports/m3-trace-inventory.md) records source
+contracts and unresolved replay semantics. Garcia configured-interval conversion
+is available; other source adapters and end-to-end replay acceptance are pending.
+
+The offline [Garcia trace tools](docs/TRACE-TOOLS.md) convert a selected raw ZIP
+window to `hng-trace-v1`, compare configured intervals with TheaterQ CSV rows,
+and report source-versus-configured late-run distributions. A synthetic quick
+start requires only Python and NumPy, without DPDK or a NIC. These tools do not
+certify cross-engine packet deadlines, outage reconstruction or hardware timing.
+
+## Performance microbenchmarks
+
+`examples/hng_bench.rs` measures the scheduling core without DPDK or a NIC:
+
+```sh
+cargo run --release --locked --example hng_bench -- --mode both --repeat 3
+```
+
+Each sample times one batch (default 1024 packets) of admission plus every
+dequeue that is due, and divides by the batch size. Arrivals are back-to-back
+frames at `--c-bps` (default 100 Gbit/s, 1518-byte mbufs), so in steady state
+each packet is admitted and dequeued once. Batches that end before
+`--warmup-ns` (default t + delta = 462 ms of virtual time) are not sampled.
+Fixed mode uses `--t-ns`, `--delta-ns` and `--p` (defaults 142 ms, 320 ms,
+0.01). Trace mode replays a synthetic sawtooth trace between t and t + delta
+with one row per `--trace-row-ns`. The output reports p50, p99 and max
+ns/packet, the CPU model, the `/proc/cpuinfo` MHz value and the kernel clock
+source. The `arithmetic` lines compare the exact u128 service-time arithmetic
+with a rounded u64 picosecond baseline that the core does not use because it
+drifts.
+
+These numbers describe the machine they ran on. They are not evidence of
+sustained 100 Gbit/s operation. Results and rerun commands are in
+[docs/reports/m4-perf.md](docs/reports/m4-perf.md).
+
 ## License
 
 Licensed under the [Apache License, Version 2.0](LICENSE).
+
+## Checks, pre-push hook and CI
+
+`scripts/check.sh` is the complete check suite. It runs the open-source policy
+scan (`scripts/check-policy.sh`: SPDX headers and environment-specific values
+such as lab hostnames, personal paths or private IP addresses) and its
+self-test, `cargo fmt --check`, `cargo clippy --locked --all-targets -- -D warnings`,
+`cargo test --locked`, builds the offline replay executable, and runs the Python
+synthetic/integration tests. It then fails if any check modified the working tree
+(for example a stale `Cargo.lock`). GitHub Actions (`.github/workflows/ci.yml`)
+and the pre-push hook run this same script.
+
+The full check suite requires Python 3.11+ and NumPy 2.x for offline trace tests.
+The Rust engine itself still needs only Rust. Use a virtual environment:
+
+```sh
+python3 -m venv .venv
+.venv/bin/python -m pip install -r scripts/trace-requirements.txt
+PYTHON=.venv/bin/python scripts/check.sh
+```
+
+Set `PYTHON` to the same interpreter when pushing so the hook uses it.
+If NumPy cannot be imported, `check.sh` exits nonzero with installation help;
+it never skips the trace suite into a passing check. Missing measured sources
+skip only the explicitly external-data test, as described in
+[trace replay](docs/TRACE-TOOLS.md#actual-scheduler-replay-and-independent-oracle).
+
+Install the versioned hook after cloning:
+
+```sh
+./scripts/install-hooks.sh
+```
+
+The hook checks a clean checkout of the exact commit being pushed. Check out each
+commit before pushing another branch. Deletions need no build. A check failure
+blocks the push; fix the failure or the missing tool. Never bypass hooks. The
+installer refuses to replace a different existing hook.
+
+Upstream files that never carried an SPDX header are listed in
+`scripts/spdx-exempt.txt`; new files must carry one. Any accepted policy-scan
+hit must be listed explicitly in `scripts/env-allow.txt`.

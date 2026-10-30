@@ -1,0 +1,18 @@
+# SPDX-License-Identifier: Apache-2.0
+name: CI
+on: [push, pull_request]
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: python -m pip install -r scripts/trace-requirements.txt
+      # Same script as the pre-push hook: policy scan, fmt, clippy, tests, clean tree.
+      - run: scripts/check.sh

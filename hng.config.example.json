@@ -1,0 +1,93 @@
+{
+  "schema": "hng-v1",
+  "lines": [
+    {
+      "name": "cable-0-to-1",
+      "ingress_port": 0,
+      "egress_port": 1,
+      "vlan_id": 100,
+      "model": {
+        "c_bps": 8000000,
+        "q_bytes": 6400,
+        "t_ns": 1000000,
+        "delta_ns": 0,
+        "p": "0",
+        "seed": 2026102900,
+        "storage_capacity_packets": 512,
+        "storage_capacity_bytes": 1000000
+      },
+      "envelope": {
+        "min_q_bytes": 64,
+        "max_q_bytes": 1522,
+        "burst_bound_packets": 16
+      },
+      "trace": null
+    },
+    {
+      "name": "leo-0-to-1",
+      "ingress_port": 0,
+      "egress_port": 1,
+      "vlan_id": 200,
+      "model": {
+        "c_bps": 8000000,
+        "q_bytes": 6400,
+        "t_ns": 2000000,
+        "delta_ns": 0,
+        "p": "0",
+        "seed": 2026102901,
+        "storage_capacity_packets": 512,
+        "storage_capacity_bytes": 1000000
+      },
+      "envelope": {
+        "min_q_bytes": 64,
+        "max_q_bytes": 1522,
+        "burst_bound_packets": 16
+      },
+      "trace": null
+    },
+    {
+      "name": "cable-1-to-0",
+      "ingress_port": 1,
+      "egress_port": 0,
+      "vlan_id": 100,
+      "model": {
+        "c_bps": 8000000,
+        "q_bytes": 6400,
+        "t_ns": 1000000,
+        "delta_ns": 0,
+        "p": "0",
+        "seed": 2026102902,
+        "storage_capacity_packets": 512,
+        "storage_capacity_bytes": 1000000
+      },
+      "envelope": {
+        "min_q_bytes": 64,
+        "max_q_bytes": 1522,
+        "burst_bound_packets": 16
+      },
+      "trace": null
+    },
+    {
+      "name": "leo-1-to-0",
+      "ingress_port": 1,
+      "egress_port": 0,
+      "vlan_id": 200,
+      "model": {
+        "c_bps": 8000000,
+        "q_bytes": 6400,
+        "t_ns": 2000000,
+        "delta_ns": 0,
+        "p": "0",
+        "seed": 2026102903,
+        "storage_capacity_packets": 512,
+        "storage_capacity_bytes": 1000000
+      },
+      "envelope": {
+        "min_q_bytes": 64,
+        "max_q_bytes": 1522,
+        "burst_bound_packets": 16
+      },
+      "trace": null
+    }
+  ]
+}

@@ -1,0 +1,4 @@
+at_ns,delay_ns,outage
+0,110,false
+200,20,true
+300,10,false

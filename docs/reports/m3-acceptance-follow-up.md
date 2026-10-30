@@ -7,12 +7,12 @@ software behavior and leaves milestone acceptance to the research owner.
 
 | Review item | Delivered behavior and evidence |
 | --- | --- |
-| 1 | Actual HngBuffer replay of converted synthetic and external Garcia traces; independent rational service/deadline oracle; downward-step clamp and zero unexpected reordering. Commit `cb227e5`. |
-| 2 | Actual output run-length histograms and P(next late given late), compared in source ingress order; fixed p=0.01/0.10 and delta=30 ms comparisons. Commit `32309e3`. |
-| 3 | Engine startup checks actual line C/Q wire drain plus maximum delay and delta; zero, one-ns-short, exact, changed-Q and fractional-rate boundary cases. Commit `2fd4fc2`. |
-| 4 | Recipe phase and verified pool item/hash/index; paired identity, missing phase, source margins, gaps and quantization checks. Direct conversion is diagnostic. Commit `f0f5a4b`. |
-| 5 | Drop does not advance retained deadline floor. A deliberately incorrect mutation fails; the unchanged engine passes deadlines 300/310 ns after dropping 1200 ns. Commit `82be9a6`. |
-| 6 | Independent Step 2 fixture snapshot, module hash, exact invocation and arithmetic documented in `tests/fixtures/README.md`; external reference regenerates all three rows. Commit `9a2ab90`. |
+| 1 | Actual HngBuffer replay of converted synthetic and external Garcia traces; independent rational service/deadline oracle; downward-step clamp and zero unexpected reordering. Commit `962fdc2`. |
+| 2 | Actual output run-length histograms and P(next late given late), compared in source ingress order; fixed p=0.01/0.10 and delta=30 ms comparisons. Commit `0433179`. |
+| 3 | Engine startup checks actual line C/Q wire drain plus maximum delay and delta; zero, one-ns-short, exact, changed-Q and fractional-rate boundary cases. Commit `f9fd516`. |
+| 4 | Recipe phase and verified pool item/hash/index; paired identity, missing phase, source margins, gaps and quantization checks. Direct conversion is diagnostic. Commit `4751c9f`. |
+| 5 | Drop does not advance retained deadline floor. A deliberately incorrect mutation fails; the unchanged engine passes deadlines 300/310 ns after dropping 1200 ns. Commit `93a44bd`. |
+| 6 | Independent Step 2 fixture snapshot, module hash, exact invocation and arithmetic documented in `tests/fixtures/README.md`; external reference regenerates all three rows. Commit `1ecba7c`. |
 | 7 | NumPy absence fails with install help before Rust checks. Explicit expected sequence bounds include leading/trailing gaps; absent bounds stay unknown. Tests cover CLI, invalid bounds and partial knowledge. Included with this report. |
 
 ## Actual output measurements

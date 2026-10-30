@@ -5,8 +5,8 @@
 2026-10-29. Software-only on a development workstation (WSL2). No testbed access.
 
 Fresh network clones reproduced DPDS-Core
-`9531a95e15b13801e117d2a0441f8d26d8d16ee4` and host
-`5cd3b6b23307d39a7a0a4dc48c54520faa5cc17b`; host gitlink was exactly that core.
+`e9dc33514f3526a9f588185ca1bb6fe50bcc0206` and host
+`899b3d03d77139d6f529e6a28cd694d9ba530e32`; host gitlink was exactly that core.
 No baseline code was changed or repaired.
 
 | Check | Result |
@@ -22,7 +22,7 @@ user prefix, with its pkg-config and runtime library directories exported.
 
 ## Hooks
 
-Core hook implementation: `3f751a0`; host: `450d6e4`, both on `hng/m0-hooks`.
+Core hook implementation: `ff2e33f`; host: `8a4a49f`, both on `hng/m0-hooks`.
 `./scripts/install-hooks.sh` installs the versioned hook and refuses to overwrite
 another hook. A push requires clean tracked/untracked state and its commit
 must be the checked-out HEAD. Deletion-only updates require no build.

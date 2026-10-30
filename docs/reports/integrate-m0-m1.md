@@ -4,13 +4,13 @@
 
 Date: 2026-10-29. Software-only on a development workstation; no testbed access.
 Branch `hng/integrate-m0-m1` in both forks, based on `hng/core`
-(core `9531a95`, host `5cd3b6b`), ready to fast-forward `hng/core`.
+(core `e9dc335`, host `899b3d0`), ready to fast-forward `hng/core`.
 No push to `hng/core` or `main`; no hook was bypassed.
 
 ## Merge
 
-- M0 (`hng/m0-hooks`: core `e2d90a2`, host `450d6e4`) merged first, then M1
-  (`hng/m1-io`: core `356a1a0`, host `7e526dd`). Authors' commits are kept.
+- M0 (`hng/m0-hooks`: core `ba628ef`, host `8a4a49f`) merged first, then M1
+  (`hng/m1-io`: core `a4bf8b6`, host `6fdc1c4`). Authors' commits are kept.
 - Conflicts were add/add on `scripts/git-hooks/pre-push`, `scripts/install-hooks.sh`
   (both repos) and `docs/reports/m0-m2-plan.md` (core). Resolution: M1's
   versions (M0 content plus SPDX headers) with M0's completed checklist item.
@@ -18,14 +18,14 @@ No push to `hng/core` or `main`; no hook was bypassed.
 
 ## Commits after the merges
 
-Core: `1f9728e` policy scan + self-test; `1cfadfa` single `scripts/check.sh` for
-hook and CI; `6683eea` SPDX headers and environment-reference removal; `d83f28f`
-CHANGELOG and quickstart; `4f5aa4b` self-test wording fix; `008b141` robust cargo
+Core: `d411118` policy scan + self-test; `481d142` single `scripts/check.sh` for
+hook and CI; `05dcf7a` SPDX headers and environment-reference removal; `38a2393`
+CHANGELOG and quickstart; `6fb1e18` self-test wording fix; `91909c5` robust cargo
 location; then this report.
 
-Host: `536a59b` stepped-clock ring test; `d72a1cc` single `scripts/check.sh`, CI,
-SKIP accounting, core pin `008b141`; `d75f4fc` SPDX headers, CHANGELOG, README.
-The host pin is `008b141`; the only later core commit is this report.
+Host: `5cba183` stepped-clock ring test; `80aae6a` single `scripts/check.sh`, CI,
+SKIP accounting, core pin `91909c5`; `a5cc3b5` SPDX headers, CHANGELOG, README.
+The host pin is `91909c5`; the only later core commit is this report.
 
 ## Review items
 
@@ -94,9 +94,9 @@ behaviour, and numbers that are not addresses. It has 20 cases, all passing.
 
 ## Tests run
 
-- Core `scripts/check.sh` at `008b141`: policy and self-test (20/20); fmt; clippy
+- Core `scripts/check.sh` at `91909c5`: policy and self-test (20/20); fmt; clippy
   `--locked -D warnings`; `cargo test --locked` **42 passed** (9 + 5 + 28), 0 failed.
-- Host `scripts/check.sh` at `d75f4fc` from a clean build directory: the pinned
+- Host `scripts/check.sh` at `a5cc3b5` from a clean build directory: the pinned
   core checks as above, then Meson **15/15 OK, 0 skipped**. The 15 tests are
   14 existing ones and the new `io-ring-stepped`.
 - Both pushes ran the hook already installed in the shared clones (the earlier
@@ -114,7 +114,7 @@ exists.
 
 ## Deviations and open items
 
-- The host pin is `008b141`, not the core tip; the only difference is this report.
+- The host pin is `91909c5`, not the core tip; the only difference is this report.
 - Upstream files keep no SPDX header and are listed explicitly, as allowed.
 - The DPDK tarball checksum and SHA-pinned actions were not added. They are
   review minor items.

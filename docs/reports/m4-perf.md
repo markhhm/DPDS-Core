@@ -22,14 +22,14 @@ not measurements.
 
 ## Commits
 
-DPDS-Core `hng/m4-perf`: `bbc05e7` (core microbenchmark), `f32e9b5` (metadata
-size API), `ce4b176` (line handles), `0fa6bed` (admitted record), `ee6d418`
-(merged pop), `1c73f9f` (direct merged pop), and this report.
+DPDS-Core `hng/m4-perf`: `4df158f` (core microbenchmark), `5176b4b` (metadata
+size API), `a0a710c` (line handles), `65f42c1` (admitted record), `91cca13`
+(merged pop), `a692a7a` (direct merged pop), and this report.
 
-DPDS `hng/m4-perf`: `6c18bdc` (net_ring rate), `520b3ca` (pool calculator),
-`9f79dc8` (scheduler per ingress port), `cad2194` (scheduler-owner
-microbenchmark), `770f23f` (annotate at admission), `f6f7d4d` (merged pop in
-the worker), `c9e4012` (core pin).
+DPDS `hng/m4-perf`: `180e1c1` (net_ring rate), `a62db5e` (pool calculator),
+`e105964` (scheduler per ingress port), `51e32bb` (scheduler-owner
+microbenchmark), `2ec26ef` (annotate at admission), `494852d` (merged pop in
+the worker), `153effc` (core pin).
 
 ## 1. Microbenchmarks
 
@@ -254,12 +254,12 @@ differ. Load average on the machine was 3-7 during these runs.
 
 ### Commits
 
-DPDS-Core: `c9470fd` (64-byte stored entry, prefaulted prefetching ring,
-derived counters, 128-byte `Line` alignment, burst offer). DPDS: `be2855a`
-(handles taken before launch), `95f8c32` (departures, counters, pre-M4 golden),
-`3c6cfea` (independent RX directions), `e025346` (production fixture,
-concurrent owners), `b6f851c` (burst admission, frontier alignment),
-`481624e` (calculator), `10a1f6d` (TX pending 1024).
+DPDS-Core: `7ce749c` (64-byte stored entry, prefaulted prefetching ring,
+derived counters, 128-byte `Line` alignment, burst offer). DPDS: `d31de54`
+(handles taken before launch), `ea2c886` (departures, counters, pre-M4 golden),
+`67c1b67` (independent RX directions), `98b42e7` (production fixture,
+concurrent owners), `f530bbc` (burst admission, frontier alignment),
+`14beaed` (calculator), `d2d2f1c` (TX pending 1024).
 
 ### Fixes from review
 
@@ -271,7 +271,7 @@ concurrent owners), `b6f851c` (burst admission, frontier alignment),
   (sequence, VLAN, length, release, deadline, departure tick) and the worker
   counters `sent`, `emulator_drops`, `tx_ring_drops` match. The single-owner
   output matches a golden digest (`tests/split-golden.csv`) produced by the
-  pre-M4 scheduler, DPDS `d75f4fc`, on the same input.
+  pre-M4 scheduler, DPDS `a5cc3b5`, on the same input.
 - RX: a full owner ring skips only that port (`ring_full_skips`), so one
   congested direction no longer stalls the other (`rx_split` test).
 
@@ -382,10 +382,10 @@ started. Trace-mode `--verify` is not supported (fixed mode only).
 
 ## Round 3 (second review)
 
-Commits: DPDS-Core `76c9f74` (64-byte aligned FIFO entry), `fbed6b9`
-(available-memory check). DPDS `8db7cc0` (golden digest tracked), `28cc751`
-(pin), `ce55f10` (TX pending head index), `fec6516` (NIC loss invalidates),
-`5661858` (static asserts), `b112ae3` (pin).
+Commits: DPDS-Core `d04fdbc` (64-byte aligned FIFO entry), `1b351df`
+(available-memory check). DPDS `8d978b2` (golden digest tracked), `1df63f7`
+(pin), `f649938` (TX pending head index), `1511291` (NIC loss invalidates),
+`7ef2dcf` (static asserts), `d95894c` (pin).
 
 - `tests/split-golden.csv` was ignored by `*.csv` and never committed, so a
   clean clone failed `dpds:split`. It is now tracked. A fresh `git clone
@@ -421,7 +421,7 @@ owner 96.2 ns (69.0-103.2). At this load the run cannot resolve a 60 ns
 gate; the quietest measurement remains 63.4 / 65.2 ns per concurrent owner
 (round 2). A clean measurement needs an idle machine or the target host.
 
-One local `check.sh` run on DPDS `b112ae3` exited 1 without a captured cause;
+One local `check.sh` run on DPDS `d95894c` exited 1 without a captured cause;
 the pre-push hook on the same commit and an immediate rerun both passed.
 
 ## WSL2-only and untested
@@ -496,7 +496,7 @@ above. Only the differences are used.
 | Change | Rounds | Result (new - old p50, median; range over rounds) | Kept |
 |---|---:|---|---|
 | Burst pop: one `hng_lines_pop_merged_burst` call per step instead of one call per packet (Core + `worker_step_at`) | one pair of 9-run sets (before the A/B method) | production-sized port 0 62.11 -> 62.23 ns, port 1 62.63 -> 62.44; no difference | no; Core test and equivalence held, then reverted |
-| Admission: one 128-bit division, remainder from the quotient (`0c0e0d0`) | 15 | small port 0 +0.60 (-8.25..+4.29), port 1 +0.46 (-7.14..+6.75); production-sized port 0 -1.51 (-18.19..+6.07), port 1 -3.25 (-15.16..+5.51); new faster in 12/15 and 14/15 production-sized rounds | yes: exact (new test pins the ceiling for rates that do not divide), saves a division, but the gain is inside the noise |
+| Admission: one 128-bit division, remainder from the quotient (`4804e8c`) | 15 | small port 0 +0.60 (-8.25..+4.29), port 1 +0.46 (-7.14..+6.75); production-sized port 0 -1.51 (-18.19..+6.07), port 1 -3.25 (-15.16..+5.51); new faster in 12/15 and 14/15 production-sized rounds | yes: exact (new test pins the ceiling for rates that do not divide), saves a division, but the gain is inside the noise |
 | Prefetch input mbuf header, metadata and data line for the whole burst before classify (DPDS) | 15 and 25 | first 15: small -2.70 / -1.42, production-sized +1.90 / +8.36; then 25 rounds: small +1.30 / +0.78, production-sized -1.54 / +0.16; signs flip between sets | no: no effect distinguishable from zero |
 
 The divmod change keeps `service_ns` identical: the new test
@@ -526,7 +526,7 @@ core-side prefetch of the FIFO slots helped.
 
 ## Round 5: counter, ledger and merged-dequeue experiments (2026-10-30)
 
-Starting revisions: DPDS `6b9880d`, DPDS-Core `2f10bdf`. Same shared WSL2
+Starting revisions: DPDS `96d2075`, DPDS-Core `1fa417c`. Same shared WSL2
 machine, 4 KiB pages, no frequency control or isolation; other builds could
 run concurrently. These are software reference measurements, not evidence
 for 100 Gbit/s. The baseline full checks passed in both repositories (all

@@ -7,14 +7,14 @@ No testbed, physical NIC, hardware G2, precision or throughput result is claimed
 
 ## Reviewable changes
 
-- Core `hng/m2-obs`: `504d77b` adds a JSONL adapter around the actual scheduler.
+- Core `hng/m2-obs`: `44bceab` adds a JSONL adapter around the actual scheduler.
   It contains no reference-model formulas and leaves scheduling behavior alone.
-- Host `hng/m2-obs`: `9ca159d` adds an independent streaming Python Fraction
-  reference and million-event differential comparison; `22368d9` adds the
+- Host `hng/m2-obs`: `e238371` adds an independent streaming Python Fraction
+  reference and million-event differential comparison; `488388c` adds the
   reporter, CLI, fault tests, Stage 1-compatible probe codec, docs and Meson
-  integration. Review corrections are host `20433e1` (final implementation tip).
-  Its submodule is exactly core `504d77b`.
-- M0 dependencies remain core `e2d90a2`, host `450d6e4` on `hng/m0-hooks`.
+  integration. Review corrections are host `0554cad` (final implementation tip).
+  Its submodule is exactly core `44bceab`.
+- M0 dependencies remain core `ba628ef`, host `8a4a49f` on `hng/m0-hooks`.
 
 The exact provisional formats and invocation commands are host
 `tools/g2/README.md`. Scope: complete per-packet ingress decisions; exact finite
@@ -90,7 +90,7 @@ The task owner corrected the 0.2 ms injection: detection is separate from a
 threshold-crossing fixture; G2 thresholds stay 0.1 ms median / 0.5 ms p99.
 Current tests reflect that correction rather than changing the acceptance gate.
 
-HNG-OBSERVER is being written on hng/design; latest fetched `f1d2050` contains
+HNG-OBSERVER is being written on hng/design; latest fetched `a549e65` contains
 MACHINE-REQUEST and HNG-DESIGN only. Final schema adapters, classifier-reject
 physical ordinal treatment, bounded nonblocking observer capture, observer
 overflow counters, common-clock pairing, port TX attempt/gate checking,
@@ -147,13 +147,13 @@ rebasing. License headers and public documentation have been checked against
 the repository's policy scanner; private machine/session names and evidence
 paths are excluded from this report. Existing upstream history is unchanged.
 
-The host adds a strict event-stream validator (`20d712b`), covering header,
+The host adds a strict event-stream validator (`04d4bf9`), covering header,
 all-record sequence continuity, marker counts, final seals, canonical content
 hashes and separate byte-level file hashes. A sequence gap alone is sufficient
 to report incomplete observation; a drop counter is not required. Receiver
 wire ordinal is separate from JSONL export ordering.
 
-Online cell statistics and sampled retention are implemented in host `4ed39d8`.
+Online cell statistics and sampled retention are implemented in host `5cd64da`.
 Each line/direction/phase has separate main, ordinary/late main, late extra and
 per-app extra groups. Main errors are retained within a registered bound for
 exact quantiles; all groups have bounded signed/absolute histograms with exact
@@ -174,7 +174,7 @@ Complete duplicate delivery and delivery of model-intended drops fail the data
 path; an identity absent from ingress is a structural invalidity. Missing
 observation evidence remains inconclusive.
 
-Host `f823b9e` adds exact rational clock-map and raw/corrected OWD validation.
+Host `e8bfa7b` adds exact rational clock-map and raw/corrected OWD validation.
 Its software debug custody replay checks offer ordinals, terminal identity,
 dispatch item ordinals, consumed prefixes, zero/partial/full TX acceptance and
 cable/LEO gate bypass on a shared egress. These components pass 25 focused
@@ -183,7 +183,7 @@ it refuses normal streaming and physical scope. Database handles close after
 replay and lookups. The complete host check and pre-push check both passed
 16/16 tests with no skips.
 
-Host `6019877` connects the reference CLI to sealed v1 input/output. Its output
+Host `d806d68` connects the reference CLI to sealed v1 input/output. Its output
 has independent envelope ordinals and a final v1 summary containing source
 hashes/counts, per-port end counts, per-line outcomes and Q-ledger resource
 peaks. Invalid raw input preserves its ingress ordinal without consuming valid
@@ -195,7 +195,7 @@ reporter still accepts the reference output during migration. Focused reference,
 report and protocol checks passed 54 tests; the complete host check passed
 16/16 with no skips.
 
-Host `c0ec96b` adds static v1 registration preflight. It checks logical
+Host `d72f8ec` adds static v1 registration preflight. It checks logical
 port/VLAN/queue mapping, immutable config/trace/calibration sources, required
 cells, sampling targets and pool declarations, and bounded debug retention.
 The planning vector is `N_plan(10)=440433`; the m=1 boundary is also checked
@@ -205,7 +205,7 @@ preflight explicitly does not claim captured-stream integrity or data-path
 gate evaluation. Focused checks passed 66 tests; the full host check passed
 16/16 with no skips.
 
-Host `68a4350` normalizes typed counter snapshots, retaining explicit endpoints,
+Host `85baaa7` normalizes typed counter snapshots, retaining explicit endpoints,
 clock/generation metadata, descriptors and complete source hashes. Reset or
 regression cannot become a zero drop; unknown required values remain null.
 Observer accounting, queue high-water, software conservation and terminal
@@ -215,11 +215,11 @@ checks passed 54 tests.
 
 The first complete counter check passed 15/16 tests: the existing null smoke
 test sent SIGINT before startup completed. A delayed real-DUT fixture reproduced
-the fixed-sleep race. Host `3feb70e` waits for actual worker readiness and retains
-the delay as a regression; the corrected check passed 16/16. Host `58fafe9`
-then merges M4 `b5bf9b0`, keeping its early signal-handler installation,
+the fixed-sleep race. Host `d6b0e8d` waits for actual worker readiness and retains
+the delay as a regression; the corrected check passed 16/16. Host `1db3168`
+then merges M4 `b99aca3`, keeping its early signal-handler installation,
 2/3/4/5-lcore and startup-SIGINT coverage, plus readiness before traffic.
-The pinned core is merge `6e29024`, containing M4 `94fb125` and the independent
+The pinned core is merge `36b7aae`, containing M4 `a2a339c` and the independent
 replay adapter. The merged full host check passed 25/25 with no skips; core
 policy/trace tools/fmt/clippy/tests also passed. No hardware qualification ran.
 
@@ -245,25 +245,25 @@ end to end for this ledger, so other rows are claims to audit, not new evidence.
 
 | # | Gap | Done | Open |
 | --- | --- | --- | --- |
-| 1 | Stream envelope and seal | `20d712b`, `6019877` | none for software |
-| 2 | Observer loss from seq gap, not counters | `20d712b`, `6019877` | none for software |
-| 3 | v1 manifest | `c0ec96b` | physical fields (offloads, clocks) are fixtures only |
-| 4 | v1 ingress records, invalid inputs | `6019877` | none for software |
-| 5 | Per-identity offer and terminal checks | `f823b9e` (debug replay), `4180fac` (live) | none for software |
-| 6 | Receive order from `receive_seq` | `4ed39d8` | none |
-| 7 | Timestamp objects, before stream, raw/corrected OWD | `f823b9e`, `5f5e8ce` | physical timestamp adapters (M5) |
-| 8 | Calibration | `f823b9e` | real apparatus calibration (M5) |
-| 9 | Typed counter snapshots | `68a4350` | NIC-specific descriptors |
-| 10 | Per-cell verdicts and inventory | `4ed39d8`, `5f5e8ce` | none |
-| 11 | Signed errors, strata, windows | `4ed39d8`, `5f5e8ce` | none |
-| 12 | Shared-egress attempt/dispatch audit | `f823b9e`, `172feea`, live in `4180fac`; `15948b2` adds the end-to-end shared-egress fixture | a held trace line next to a cable line is covered by the replay tests, not by a sealed-bundle fixture |
-| 13 | Busy-period collision diagnostic | `5f5e8ce` | none |
-| 14 | `hng-g2-report-v1` and CSV | `1af5d99`, `5f5e8ce` | CSV column audit against the spec |
-| 15 | Receiver anomaly classes | `4ed39d8`, `1af5d99` | none |
-| 16 | Bounded streaming join | `1af5d99`, `7f6ff79` | none for software |
-| 17 | Wider differential coverage | `4fa7971`, `c0eb439`, core `dd1fea2` | none |
+| 1 | Stream envelope and seal | `04d4bf9`, `d806d68` | none for software |
+| 2 | Observer loss from seq gap, not counters | `04d4bf9`, `d806d68` | none for software |
+| 3 | v1 manifest | `d72f8ec` | physical fields (offloads, clocks) are fixtures only |
+| 4 | v1 ingress records, invalid inputs | `d806d68` | none for software |
+| 5 | Per-identity offer and terminal checks | `e8bfa7b` (debug replay), `9952a4b` (live) | none for software |
+| 6 | Receive order from `receive_seq` | `5cd64da` | none |
+| 7 | Timestamp objects, before stream, raw/corrected OWD | `e8bfa7b`, `b482cbe` | physical timestamp adapters (M5) |
+| 8 | Calibration | `e8bfa7b` | real apparatus calibration (M5) |
+| 9 | Typed counter snapshots | `85baaa7` | NIC-specific descriptors |
+| 10 | Per-cell verdicts and inventory | `5cd64da`, `b482cbe` | none |
+| 11 | Signed errors, strata, windows | `5cd64da`, `b482cbe` | none |
+| 12 | Shared-egress attempt/dispatch audit | `e8bfa7b`, `53f5061`, live in `9952a4b`; `e916c9e` adds the end-to-end shared-egress fixture | a held trace line next to a cable line is covered by the replay tests, not by a sealed-bundle fixture |
+| 13 | Busy-period collision diagnostic | `b482cbe` | none |
+| 14 | `hng-g2-report-v1` and CSV | `a058f49`, `b482cbe` | CSV column audit against the spec |
+| 15 | Receiver anomaly classes | `5cd64da`, `a058f49` | none |
+| 16 | Bounded streaming join | `a058f49`, `e44eafd` | none for software |
+| 17 | Wider differential coverage | `4cd8a84`, `962e12f`, core `843c14a` | none |
 | 18 | Fault injection through the real PMD path | online-statistics fixtures only | pcap/net_ring DUT injection with mixed population |
-| 19 | Native exporter | `0857270`, `4180fac`, `6cd16c4`; `4e1bde5` rejects 7-lcore capture before startup | 7-lcore observation remains unsupported |
+| 19 | Native exporter | `eb75f37`, `9952a4b`, `29f7d23`; `96c5fb3` rejects 7-lcore capture before startup | 7-lcore observation remains unsupported |
 | 20 | Open-source items | SPDX and path scrub in earlier commits | event/report format document; CI wiring of the missing PMD fault-injection tests |
 
 Added by the 2026-10-30 integration: observation in the 7-lcore layout is not
@@ -271,30 +271,30 @@ supported (the host refuses it at startup), listed after item 12.
 
 ## Review fixes and four-CPU timing (2026-10-30)
 
-Software-only. These changes address the review of host `f98d185`; they do not
+Software-only. These changes address the review of host `ae284f2`; they do not
 provide accuracy, throughput, physical G2 or complete M2 qualification. The gap
-ledger above was published as core `6e2d0b4` after its full check suite passed.
+ledger above was published as core `54ea201` after its full check suite passed.
 
 | Item | Status | Host commit and evidence |
 | --- | --- | --- |
-| Real host-core merge | Done | `f7310f0` has two parents and includes `e47372b` |
-| Recovered line at the final clock read | Done | `7840e7a`; `recovery_at_final_clock_read` first failed on the observed release order 200 then 100; now sends 100 then 200 |
-| Expired retry rejoining a merged burst | Fixed; base-branch PR awaiting review | Reproduced on `hng/core` at `6b9880d`; `f7ca0e1` validates replacement heads before merging; `e203149` merges it into M2 while retaining observer terminal and abort events |
-| Reject 7-lcore capture before producers | Done | `4e1bde5`; `observer-export` first showed pools and a launched layout, then passed with an empty capture and rejection before pool creation; disabled 7-lcore forwarding also passes |
+| Real host-core merge | Done | `0330d83` has two parents and includes `5e5bca1` |
+| Recovered line at the final clock read | Done | `f5db598`; `recovery_at_final_clock_read` first failed on the observed release order 200 then 100; now sends 100 then 200 |
+| Expired retry rejoining a merged burst | Fixed; base-branch PR awaiting review | Reproduced on `hng/core` at `96d2075`; `ce12ef2` validates replacement heads before merging; `5763b3a` merges it into M2 while retaining observer terminal and abort events |
+| Reject 7-lcore capture before producers | Done | `96c5fb3`; `observer-export` first showed pools and a launched layout, then passed with an empty capture and rejection before pool creation; disabled 7-lcore forwarding also passes |
 
 Retry fix [PR #3](https://github.com/markhhm/DPDS/pull/3) targets `hng/core` from
 `hng/fix-tx-retry-burst`. Both remote `check` jobs passed; the PR was left open
 for review. No protected-base merge was performed. Merging its branch into M2
-also includes the existing `6b9880d` affinity-call fix.
+also includes the existing `96d2075` affinity-call fix.
 
 Each of the three regressions was run failing before its production fix. The
 retry branch's normal pre-push check passed all 30 Meson tests with zero skips.
-The final M2 host `4e1bde5` passed the normal pre-push check: all 35 Meson tests,
+The final M2 host `96c5fb3` passed the normal pre-push check: all 35 Meson tests,
 zero skips. Full checks and pushes were serialized with the shared test lock.
 
 ### Four-CPU software test timing
 
-On host commit `4e1bde5`, with affinity restricted to logical CPUs `0,1,2,3`:
+On host commit `96c5fb3`, with affinity restricted to logical CPUs `0,1,2,3`:
 
 ```sh
 flock /tmp/hng-tests.lock taskset -c 0,1,2,3 /usr/bin/time \
@@ -312,7 +312,7 @@ not a CI timing guarantee or physical performance evidence.
 ### Remote CI limitation
 
 Host [CI run 41019113194](https://github.com/markhhm/DPDS/actions/runs/41019113194)
-on `4e1bde5` failed before Meson or the regression tests ran. The pinned core's
+on `96c5fb3` failed before Meson or the regression tests ran. The pinned core's
 check reports: `NumPy is missing or cannot be imported by python3.` The host
 workflow does not install the pinned core's trace requirements. Local checks
 use a prepared Python environment and pass; the remote dependency setup remains

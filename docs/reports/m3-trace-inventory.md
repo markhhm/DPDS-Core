@@ -30,7 +30,7 @@ records are project evidence, not runtime dependencies of the public engine.
 
 | ID | Source inspected |
 | --- | --- |
-| C | DPDS-Core `9531a95e15b13801e117d2a0441f8d26d8d16ee4`, the base of this branch. [Trace API](../HNG-API.md#trace-files), [design section 5a](../HNG-DESIGN.md#5a-vlan-lines-and-trace-replay-1955-addition), `src/hng_engine.rs`, `src/hng_trace.rs`. |
+| C | DPDS-Core `e9dc33514f3526a9f588185ca1bb6fe50bcc0206`, the base of this branch. [Trace API](../HNG-API.md#trace-files), [design section 5a](../HNG-DESIGN.md#5a-vlan-lines-and-trace-replay-1955-addition), `src/hng_engine.rs`, `src/hng_trace.rs`. |
 | H | Reference converter snapshot `69daa0c5cc48d80223ea42563c2dd8603c3699c2`. The replay model, single-segment generator and loader are also unchanged in main snapshot `12e76f357532f89035e3a470e7b0eabfd3406636`; the experimental splice additions are not in that main version. |
 | T | [TheaterQ hng `bc57c33ef2890cdaffa23f7a5c069ae0699c30b2`](https://github.com/markhhm/TheaterQ/tree/bc57c33ef2890cdaffa23f7a5c069ae0699c30b2), inspected source only. H's `C2/leo-emu/validation/README.md:94-103` separately records the earlier validation build at `55f0b5e`; this inventory did not inspect a running module. |
 | K | Project research records (not public), snapshot `7402fe63af1a9e9b49b0e85ef4b93acda2da9f1d`: the Step 2 routing-demo design plan (abbreviated **Step 2** below) and three review reports from 2026-10-29 (DPOP, splice clamp, and the P0 100G emulator review). |

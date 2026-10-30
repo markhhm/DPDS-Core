@@ -153,13 +153,13 @@ All checks only read state; none changes configuration. Replace `<...>` with loc
 | Source | Pinned revision and inspected material | Consequence |
 |---|---|---|
 | HNG contract | This branch's `d5df0b7`, [HNG-DESIGN.md](HNG-DESIGN.md), including trace/VLAN additions | Four independent `(line, direction)` C/Q states, long-delay storage and full-flow observation requirements |
-| [DPDS host][host] | `5cd3b6b23307d39a7a0a4dc48c54520faa5cc17b`; README, `dpds.c`, common configuration, receive/transmit paths, Meson and Dockerfile | **Code:** one or two ports, 2–4 lcores, one RX/TX queue per port. One scheduler worker owns up to four line/direction states. Additional CPU cores do not automatically parallelize the engine |
-| [DPDS-Core][core] | `9531a95e15b13801e117d2a0441f8d26d8d16ee4`; Cargo metadata, README and HNG engine/trace/buffer sources | **Code:** Rust scheduling is independent of DPDK and physical NICs. Two packet FIFOs and a service ledger reserve capacity through the ordinary allocator; mbuf hugepages are not the whole memory requirement |
+| [DPDS host][host] | `a0f9cd2521a1dc514c6a2fb4a8e02e1b8eac9252` (branch `hng/core`); README, configuration, receive/scheduler/transmit paths, M4 reports `m4-io-split.md`, Meson and Dockerfile | **Code:** one or two ports, one RX/TX queue per port, 2–7 lcores. The 7-lcore layout has, per direction, its own RX, scheduler and TX lcore, plus the main lcore; each scheduler owns that direction's cable and LEO states. TX merges the pending frames of all eligible lines of an egress port into one burst of up to 16 frames |
+| [DPDS-Core][core] | `c5243a477084800f11e2947cd7e8390087fb8df2` (branch `hng/core`); Cargo metadata, README and HNG engine/trace/buffer sources | **Code:** Rust scheduling is independent of DPDK and physical NICs. Two packet FIFOs and a service ledger reserve capacity through the ordinary allocator; mbuf hugepages are not the whole memory requirement |
 | Internal Stage 1 target-check method (not public) | Method description read from the internal source without executing it; no public revision to pin | **Code:** capture before/after the emulator in one VM clock domain, pair by flow and sequence, compare with t plus the selected-late increment. The method is awaiting a second review; treat it as a method reference, not an approved hardware result |
 
 **Code:** the host records relative software RX time from `host_now_ns()` and TX-submit lateness. These are not per-packet wire timestamps. The complete independent observation/export/pairing path required in section 14 is still a software-stage deliverable.
 
-**Estimate and M4 requirement:** bidirectional 100G at 1,542 line bytes is `2 × 8.106 Mpps`, leaving only **61.68 ns/packet** for the current single scheduler. A 60 ns median microbenchmark has almost no aggregate-rate margin, even before tails and host work. The eight-core reservation assumes a subsequent **one-scheduler-per-direction** layout, each owning that direction's cable and LEO states and ordered egress. Those states are independent; this split preserves each shared C/Q. It is not implemented by the inspected revision. M4 must measure end-to-end and tail costs and may revise the core count/layout; do not present the single-owner 60 ns target as proof of bidirectional 100G readiness.
+**Estimate and M4 status:** bidirectional 100G at 1,542 line bytes is `2 × 8.106 Mpps`, which leaves 61.68 ns/packet for one scheduler owning both directions and 123.4 ns/packet (`1/8.106 Mpps`) for each of two per-direction owners. The pinned host revision now implements the per-direction 7-lcore layout. Its software results, all from a shared WSL2 virtual machine and not hardware evidence: about 25.9 Mpps total (12.9 Mpps per direction) on a virtual ring, limited by the scheduler at about 77 ns/packet per owner (`m4-io-split.md`). **The roadmap gate "scheduler p50 ≤ 60 ns/packet per owner" is still NOT met:** the latest median is 64.42 ns for the port 0 owner and 63.96 ns for the port 1 owner (`m4-perf.md`, "Gate result"). Even so, 64 ns per owner is below the 123.4 ns per-direction budget, but tails, host work, real NICs and memory traffic are unmeasured. The eight-core reservation (section 11) therefore rests on the 7-lcore layout (6 data-plane lcores plus main) plus one spare, and M4 or hardware measurements may revise it. Do not present these WSL2 numbers as proof of bidirectional 100G readiness.
 
 **Code:** the small default configuration is not a 100G configuration. Pool sizing uses configured storage and the adjusted RX/TX descriptor counts, and startup reports object footprint. It does not reserve hugepages automatically. Defaults include 256 RX/TX descriptors, 1,024-entry handoff rings and 256 pending TX packets per line; none is a demonstrated 100G setting.
 
@@ -171,7 +171,7 @@ All checks only read state; none changes configuration. Replace `<...>` with loc
 
 | Item | Requirement or check | Evidence |
 |---|---|---|
-| Physical cores | Reserve eight data-plane cores plus control/observer cores; recommend at least 16 total. This assumes M4 later provides one scheduler per direction, with independent RX/TX work as needed. Current host layouts use only 2–4 lcores; M4 measurements may change the reservation. Do not count SMT threads as physical cores | Decision, estimate and code; aggregate-rate budget in section 10 |
+| Physical cores | Reserve eight data-plane cores plus control/observer cores; recommend at least 16 total. This follows the 7-lcore layout of section 10 (per direction RX, scheduler and TX lcore, plus main = 7 lcores; the eighth core is a spare). The layout exists in software only; the per-owner p50 gate is not met yet and hardware measurements may change the reservation. Do not count SMT threads as physical cores | Decision, estimate and code; aggregate-rate budget in section 10 |
 | CPU frequency | Prefer a server CPU sustaining roughly 2.5–3 GHz or higher; record frequency, throttling and power policy | Estimate; no measured minimum CPU model or GHz |
 | NUMA placement | Keep both data ports, host lcores, mbuf pools and Rust metadata on the same node where possible; place observer work on separate cores with adequate local memory bandwidth | [DPDK NUMA guidance][numa]; placement is an estimate |
 | Cross-node alternative | Local RX pools do not prevent remote egress DMA through the other node. Register this as a different topology and report its cost | Test design; acceptance of supplied topology TBD |
@@ -235,7 +235,7 @@ Use the general bound `pps_line <= floor((hugetlb_bytes_per_direction - measured
 | Faults and lifecycle | Zero/partial/full fake TX returns, exhausted rings/pools, pending late packets at stop, trace drops with outstanding service entries | No leaks/double frees/duplicate TX; packet/byte/mbuf conservation and explicit layer counters |
 | Trace conversion, M3 | Provenance/hash and registered delay, direction, loss/outage semantics; compare the same source segment against the Stage 2 reference | Independent deadline agreement, downward-step order preserved; no unregistered trace splicing; only redistributable or synthetic fixtures in the repository |
 | Observation tools, M2 | Known-time fixtures, identity loss/duplicates, clock errors, ordinary packet swap, storage loss, injected 0.2 ms delay and 1% observer-event loss | Detect each fault; uncertainty/missing evidence gives INCONCLUSIVE. At least 10^6 events compared with an independent model. A production-computed deadline is not an independent oracle |
-| Capacity/performance preparation, M4 | Measure allocation/stride, validate the pool calculator, reassess TX pending/retry/hold limits; fixed/trace scheduling microbenchmarks | Roadmap targets: calculator within 5% of small allocations and scheduler p50 ≤60 ns/packet. Check the 61.68 ns aggregate budget and proposed per-direction split separately; these workstation targets are not physical throughput evidence |
+| Capacity/performance preparation, M4 | Measure allocation/stride, validate the pool calculator, reassess TX pending/retry/hold limits; fixed/trace scheduling microbenchmarks | Roadmap targets: calculator within 5% of small allocations and scheduler p50 ≤60 ns/packet. Check the 61.68 ns single-owner aggregate budget and the per-direction split separately (per-owner p50 gate not met yet, section 10); these workstation targets are not physical throughput evidence |
 
 **Gate A evidence:** host/core SHA, Cargo.lock, DPDK/PMD versions, logs for the necessary paths of all four virtual devices, trace/config/fixture hashes and conservation results. Complete M1–M4 and the applicable OS1–OS6 checks. Unimplemented, skipped or permission-blocked work cannot be reported as a passed path; resolve it before claiming this complete gate.
 
@@ -301,9 +301,9 @@ Kept for a possible later request; **none of this exists or is requested now.** 
 
 Vendor/DPDK sources checked on 2026-10-29. Pinned code, project decisions and calculations are distinguished above. No third-party code or datasets are redistributed by this document.
 
-[host]: https://github.com/markhhm/DPDS/tree/5cd3b6b23307d39a7a0a4dc48c54520faa5cc17b
-[core]: https://github.com/markhhm/DPDS-Core/tree/9531a95e15b13801e117d2a0441f8d26d8d16ee4
-[docker]: https://github.com/markhhm/DPDS/blob/5cd3b6b23307d39a7a0a4dc48c54520faa5cc17b/.devcontainer/Dockerfile
+[host]: https://github.com/markhhm/DPDS/tree/a0f9cd2521a1dc514c6a2fb4a8e02e1b8eac9252
+[core]: https://github.com/markhhm/DPDS-Core/tree/c5243a477084800f11e2947cd7e8390087fb8df2
+[docker]: https://github.com/markhhm/DPDS/blob/a0f9cd2521a1dc514c6a2fb4a8e02e1b8eac9252/.devcontainer/Dockerfile
 [cx6]: https://networking-docs.nvidia.com/connectx6dxhw/introduction
 [cx5]: https://docs.nvidia.com/networking/display/nvidia-connectx-5-ethernet-adapter-cards-user-manual.pdf
 [cx4]: https://networking-docs.nvidia.com/connectx4vpihw/specifications
@@ -320,6 +320,6 @@ Vendor/DPDK sources checked on 2026-10-29. Pinned code, project decisions and ca
 [null]: https://doc.dpdk.org/guides-26.03/nics/null.html
 [ring]: https://doc.dpdk.org/guides-26.03/nics/ring.html
 [pcap]: https://doc.dpdk.org/guides-26.03/nics/pcap.html
-[m4]: https://github.com/markhhm/DPDS-Core/blob/d1fa833c52a305fd03d82bb2887380e36bb65072/docs/reports/m4-perf.md
+[m4]: https://github.com/markhhm/DPDS-Core/blob/c5243a477084800f11e2947cd7e8390087fb8df2/docs/reports/m4-perf.md
 [afpacket]: https://doc.dpdk.org/guides-26.03/nics/af_packet.html
 

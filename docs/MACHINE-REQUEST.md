@@ -13,7 +13,7 @@ Functional and correctness work (M1–M4) stays on the development workstation w
 
 Evidence labels used throughout:
 
-- **Decision:** a project-owner decision of 2026-10-29, or roadmap revision `4b07aea`, M1–M7 and OS1–OS6.
+- **Decision:** a project-owner decision of 2026-10-29, including the M1–M7 and OS1–OS6 roadmap items.
 - **Testbed record:** the testbed owner's private inventory, copied here only at role level (no names, addresses or accounts).
 - **Code:** behavior read at a pinned source revision, not a performance measurement.
 - **Specification:** linked primary vendor or DPDK documentation.
@@ -56,7 +56,7 @@ host C (TG + sink)                Tofino switch 1                 host A (DUT)
 
 | Source | Capability (evidence) | Use |
 |---|---|---|
-| Tofino switch 1 data-plane timestamps | A P4 program can read the ingress MAC timestamp and an egress-pipeline timestamp on one switch clock. Exact timestamp points, resolution and whether the loaded SDE/NOS exposes them: ***unverified*** | **Primary OWD source.** `before` = egress timestamp toward P_DUT, `after` = ingress MAC timestamp from P_DUT. The P4 program overwrites a reserved, fixed-length field of the test packet (length unchanged), so the sink receives both values with every packet |
+| Tofino switch 1 data-plane timestamps | A P4 program can read the ingress MAC timestamp and an egress-pipeline timestamp on one switch clock. Exact timestamp points, resolution and whether the loaded SDE/NOS exposes them: ***unverified*** | **Planned primary OWD source, pending question 5.** `before` = egress timestamp toward P_DUT, `after` = ingress MAC timestamp from P_DUT. The P4 program overwrites a reserved, fixed-length field of the test packet (length unchanged), so the sink receives both values with every packet |
 | ConnectX-4 RX hardware timestamps (host C, host A) | DPDK 26.03 mlx5 lists ConnectX-4, firmware ≥12.21.1000, as the minimum for RX timestamp offload ([mlx5 guide][mlx5]); the testbed card reports firmware 12.28.2302. Default clock is a free-running counter; whether the real-time clock mode (`REAL_TIME_CLOCK_ENABLE`) exists on CX-4: ***unverified*** | Secondary: RX/RX pairs on host C's single adapter clock when Tofino switch 1 mirrors before/after copies to it (10G stage only, section 5). Also sink-side diagnostics |
 | ConnectX-4 TX timestamps | None at wire level. DPDK TX send scheduling needs ConnectX-6 Dx or later ([mlx5 guide][mlx5]); NVIDIA documents TX-port timestamps for ConnectX-6 Dx and later ([timestamps][timestamps]). CX-4 completion timestamps are not wire times | Not usable for OWD. The TG's send time is never one end of a gate measurement |
 | DUT software time (TSC) | RX observation and TX-submit bracket in the engine clock E (code) | Diagnostic residence only; never a substitute for an observed egress |
@@ -89,7 +89,7 @@ Error budget per OWD pair (all *estimate*, to be replaced by measured bounds in 
 | Quantization | 0.1 µs | Assumes ns-scale counter resolution, ***unverified*** |
 | Load-dependent MAC/FIFO delay at the stamp points | 2 µs | Measured at target loads in step 2 |
 | Residual/unknown | 2 µs | Reserve |
-| **Total** | **6.4 µs** | ≤ 10 µs target; 6.4% of the 0.1 ms median threshold, 1.3% of the 0.5 ms p99 threshold |
+| **Total** | **6.4 µs (budget proposal, not measured)** | ≤ 10 µs target; 6.4% of the 0.1 ms median threshold, 1.3% of the 0.5 ms p99 threshold |
 
 Variant B adds the aggregation switch transit term; the mirror cross-check adds the mirror-queue difference between the two copies. Both must be measured before use.
 
@@ -98,9 +98,9 @@ Variant B adds the aggregation switch transit term; the mirror cross-check adds 
 - **Bidirectional 100G line rate** (100G in each direction at once). Host C and the DUT path each have one 100G port; variant A carries at most 100G into and 100G out of the DUT in total. The two modeled directions can only share that 100G.
 - **The 200G-aggregate PCIe/NUMA case.** Variant A uses one Gen3 x16 adapter; variant B is one direction at a time.
 - **An independent passive observer.** The Tofino switch is independent of the DUT but is an active, in-path device that also forwards the generator traffic. Report "switch-hardware timestamps at the DUT-facing port", not passive tap observation.
-- **Nanosecond-level or sub-microsecond accuracy.** The budget is microsecond-scale (6.4 µs estimate, ≤10 µs target).
+- **Nanosecond-level or sub-microsecond accuracy.** The budget is microsecond-scale (6.4 µs budget proposal, not measured; ≤10 µs target).
 - **Generator-side OWD.** CX-4 has no TX wire timestamp, so no OWD from generator send to sink receive.
-- **Bare-metal results.** All three hosts are hypervisors shared with other workloads; the DUT runs in a VM with PCI passthrough (section 15). Results are for that registered VM topology.
+- **Bare-metal results.** All three hosts are hypervisors shared with other workloads; the DUT runs in a VM with PCI passthrough unless bare metal is allowed (question 3; section 15). Results are for that registered topology.
 - **100G with the full 462–512 ms long-delay storage, until hugepages are reserved.** With the M4 pool calculator (section 11), one 100G line in one direction at `142+320+50 = 512 ms` needs 4,164,452 pool objects = **9.716 GiB** of hugepage mempool plus 0.619 GiB of ordinary heap; cable + LEO in both directions need **38.826 GiB** of hugepages on the DUT node. Host A's DUT-adapter node yielded only 2,587 of 4,096 requested 2 MiB pages (5.05 GiB) after compaction in the testbed record, which does not hold even one line. A boot-time reservation by the testbed owner is needed first.
 - **100G generator capacity is not established.** Host C has 6 physical cores; whether it can generate, receive and record 100G of 1,542-byte frames (8.106 Mpps) is *unverified* until its bypass run passes. If it cannot, `R_valid` is limited by the generator and is reported as such.
 - Unchanged from the design: no small-packet 100G claim, no overload of C = 100G from one 100G ingress, and no UTC-traceable absolute time.
@@ -155,7 +155,7 @@ All checks only read state; none changes configuration. Replace `<...>` with loc
 | HNG contract | This branch's `d5df0b7`, [HNG-DESIGN.md](HNG-DESIGN.md), including trace/VLAN additions | Four independent `(line, direction)` C/Q states, long-delay storage and full-flow observation requirements |
 | [DPDS host][host] | `5cd3b6b23307d39a7a0a4dc48c54520faa5cc17b`; README, `dpds.c`, common configuration, receive/transmit paths, Meson and Dockerfile | **Code:** one or two ports, 2–4 lcores, one RX/TX queue per port. One scheduler worker owns up to four line/direction states. Additional CPU cores do not automatically parallelize the engine |
 | [DPDS-Core][core] | `9531a95e15b13801e117d2a0441f8d26d8d16ee4`; Cargo metadata, README and HNG engine/trace/buffer sources | **Code:** Rust scheduling is independent of DPDK and physical NICs. Two packet FIFOs and a service ledger reserve capacity through the ordinary allocator; mbuf hugepages are not the whole memory requirement |
-| Stage 1 target-check reference (not public; location in the private deployment manifest) | `de035a63f5d0135ee70b0bceb27d5051897b85a1`; target-check document/runner and `C2/harness/target_rate_metrics.py`, `target_rate_check.py`, fetched and read without execution | **Code:** capture before/after the emulator in one VM clock domain, pair by flow and sequence, compare with t plus the selected-late increment. This revision is awaiting a second review; pin it as a method reference, not an approved hardware result |
+| Internal Stage 1 target-check method (not public) | Method description read from the internal source without executing it; no public revision to pin | **Code:** capture before/after the emulator in one VM clock domain, pair by flow and sequence, compare with t plus the selected-late increment. The method is awaiting a second review; treat it as a method reference, not an approved hardware result |
 
 **Code:** the host records relative software RX time from `host_now_ns()` and TX-submit lateness. These are not per-packet wire timestamps. The complete independent observation/export/pairing path required in section 14 is still a software-stage deliverable.
 
@@ -271,7 +271,7 @@ These are **test-design requirements for later execution**, not actions performe
 
 For stress, an independent C/Q oracle supplies `expected_i=e_i-a_i+t+Iδ`, where `a_i` is ingress time and `e_i` is service completion. For trace, compute `deadline_i=max(e_i+t(e_i), deadline_{i-1})`, apply the registered outage action to obtain `release_i`, then use `expected_i=release_i-a_i`. Use the same declared observation boundaries and clock mapping throughout. Report monotone-clamp delay separately from implementation error; comparing directly to raw trace t would misclassify legitimate clamp behavior.
 
-**Code compatibility:** Stage 1 revision `de035a6` already computes the median and p99 of absolute errors against `t + selected_late * delta`. Its quantiles linearly interpolate sorted finite samples at `(n-1)*q`; use the same convention in the P1 reporter. Do not substitute `abs(median(OWD)-t)`, which is a different statistic.
+**Code compatibility:** the internal Stage 1 target-check method (not public) already computes the median and p99 of absolute errors against `t + selected_late * delta`. Its quantiles linearly interpolate sorted finite samples at `(n-1)*q`; use the same convention in the P1 reporter. Do not substitute `abs(median(OWD)-t)`, which is a different statistic.
 
 **Code and test design:** retain Stage 1's PASS/FAIL/INVALID distinction: invalid evidence takes precedence within a row; an overall valid failing row gives FAIL, otherwise missing/invalid required rows give INVALID. P1's **INCONCLUSIVE** measurement state maps to **INVALID** in that compatible report, with explicit reasons; it never becomes PASS. The referenced target check has no intended shared C/Q and records that layer as not applicable, not a fabricated zero. P1 must supply real Q/trace counters and independent oracle evidence instead. The reference uses low-rate probes under concurrent load; P1's target-load and full-flow requirements still apply. Reconcile any changes from the pending Stage 1 second review before freezing the tooling.
 

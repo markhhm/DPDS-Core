@@ -234,3 +234,37 @@ offer/terminal and shared-port custody reconciliation, plus actual virtual-PMD
 observation faults remain open. The uncompleted host exporter work is preserved
 outside the public repository until it can be tested against the streaming
 contract. There is still no full M2 or physical G2 signoff.
+
+## Gap ledger against the independent M2 review (2026-10-30)
+
+Software-only throughout: nothing here is G2, accuracy or throughput evidence.
+"Done" cites the host commit that carries it; "Open" says what is still missing.
+Item numbers follow the review's "gaps to close" list. The Done column maps
+items to commits by commit message and test names; only item 12 was re-run
+end to end for this ledger, so other rows are claims to audit, not new evidence.
+
+| # | Gap | Done | Open |
+| --- | --- | --- | --- |
+| 1 | Stream envelope and seal | `20d712b`, `6019877` | none for software |
+| 2 | Observer loss from seq gap, not counters | `20d712b`, `6019877` | none for software |
+| 3 | v1 manifest | `c0ec96b` | physical fields (offloads, clocks) are fixtures only |
+| 4 | v1 ingress records, invalid inputs | `6019877` | none for software |
+| 5 | Per-identity offer and terminal checks | `f823b9e` (debug replay), `4180fac` (live) | none for software |
+| 6 | Receive order from `receive_seq` | `4ed39d8` | none |
+| 7 | Timestamp objects, before stream, raw/corrected OWD | `f823b9e`, `5f5e8ce` | physical timestamp adapters (M5) |
+| 8 | Calibration | `f823b9e` | real apparatus calibration (M5) |
+| 9 | Typed counter snapshots | `68a4350` | NIC-specific descriptors |
+| 10 | Per-cell verdicts and inventory | `4ed39d8`, `5f5e8ce` | none |
+| 11 | Signed errors, strata, windows | `4ed39d8`, `5f5e8ce` | none |
+| 12 | Shared-egress attempt/dispatch audit | `f823b9e`, `172feea`, live in `4180fac`; end-to-end shared-egress fixture added after the 2026-10-30 merge | a held trace line next to a cable line is covered by the replay tests, not by a sealed-bundle fixture |
+| 13 | Busy-period collision diagnostic | `5f5e8ce` | none |
+| 14 | `hng-g2-report-v1` and CSV | `1af5d99`, `5f5e8ce` | CSV column audit against the spec |
+| 15 | Receiver anomaly classes | `4ed39d8`, `1af5d99` | none |
+| 16 | Bounded streaming join | `1af5d99`, `7f6ff79` | none for software |
+| 17 | Wider differential coverage | `4fa7971`, `c0eb439`, core `dd1fea2` | none |
+| 18 | Fault injection through the real PMD path | online-statistics fixtures only | pcap/net_ring DUT injection with mixed population |
+| 19 | Native exporter | `0857270`, `4180fac`, `6cd16c4` | observation is refused in the 7-lcore layout |
+| 20 | Open-source items | SPDX and path scrub in earlier commits | event/report format document; CI wiring of fault-injection tests (CI is currently red from a stepped-test timeout on a 4-CPU runner, unrelated to this branch) |
+
+Added by the 2026-10-30 integration: observation in the 7-lcore layout is not
+supported (the host refuses it at startup), listed after item 12.

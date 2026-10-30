@@ -523,3 +523,40 @@ core-side prefetch of the FIFO slots helped.
 - Transparent huge pages for the FIFOs, and measurement on an idle or isolated
   fixed-frequency core: the remaining gap (about 2-3 ns) is smaller than the
   run-to-run spread on this machine, so the gate can only be judged there.
+
+## Round 5: counter, ledger and merged-dequeue experiments (2026-10-30)
+
+Starting revisions: DPDS `6b9880d`, DPDS-Core `2f10bdf`. Same shared WSL2
+machine, 4 KiB pages, no frequency control or isolation; other builds could
+run concurrently. These are software reference measurements, not evidence
+for 100 Gbit/s. The baseline full checks passed in both repositories (all
+30 host tests ran; the core Python suite retained its one expected skip).
+
+Each variant snapshots the unchanged host binary and its own core library.
+One round runs old and new back to back in alternating order, for both
+fixtures and owners on CPUs 2/6/10, with at least 15 rounds per comparison.
+Differences below are paired p50 **new minus old**, in ns/packet. The load
+range is the one-minute load sampled after every benchmark invocation.
+
+### 1. Derive redundant statistics off the packet path
+
+Tried deriving accepted/dequeued L2 bytes from payload bytes, packet counts
+and separately accumulated padding for frames shorter than 60 mbuf bytes.
+Admission watermark and input-complete status also came from existing state.
+The C statistics layout and all values stayed unchanged. A characterization
+test pinned padding, partial dequeues, Q/storage/invalid rejections, high-water
+marks, sealing and ledger drain before the implementation changed.
+
+15 paired rounds; load **3.31-5.14**:
+
+| Fixture | Owner | Old p50 median | New p50 median | Paired difference median (range) | New faster |
+|---|---|---:|---:|---:|---:|
+| small | port 0 | 55.94 | 55.15 | -0.79 (-7.00..+12.09) | 11/15 |
+| small | port 1 | 57.14 | 56.46 | -0.51 (-6.50..+26.59) | 8/15 |
+| production-sized | port 0 | 61.05 | 60.16 | -0.60 (-4.13..+18.62) | 10/15 |
+| production-sized | port 1 | 61.68 | 61.31 | -0.55 (-1.95..+18.95) | 10/15 |
+
+**Not kept:** the sub-nanosecond differences are inside the observed noise.
+The candidate passed the full Rust test suite and all 30 host tests,
+including the split golden and integrity oracles, using its own library.
+The implementation and characterization test are saved as a local patch.

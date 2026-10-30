@@ -438,3 +438,88 @@ the pre-push hook on the same commit and an immediate rerun both passed.
 - The `null-layouts` test failed once during this work without output (likely
   the 0.25 s startup delay before SIGINT under load) and passed on five reruns.
   It predates this branch.
+
+## Round 4: per-packet cost of one scheduler owner (2026-10-30)
+
+Goal: p50 <= 60 ns per packet for each owner. **Result: not reached, and no
+change in this round moved the p50 by more than the noise.** WSL2 on a shared
+desktop CPU (AMD Ryzen 7 5800X, 16 logical CPUs, 4 KiB pages, `--no-huge`),
+owners pinned to CPUs 2/6/10, other workloads running throughout. No number
+here is evidence for 100 Gbit/s.
+
+### Baseline (sorted p50 per run, 9 runs per cell, `hng-sched-bench`)
+
+| Fixture | Owner | p50 ns/packet, sorted | median | p99 median (range) |
+|---|---|---|---:|---:|
+| small | single (all lines) | 52.75 55.64 55.68 55.87 55.97 57.65 58.96 59.14 68.49 | 55.97 | 96 (85-116) |
+| small | port 0 | 55.78 56.00 57.61 58.82 59.36 59.49 59.52 60.40 70.00 | 59.36 | 103 (81-129) |
+| small | port 1 | 58.15 58.78 60.27 61.41 61.56 61.69 65.09 66.47 71.68 | 61.56 | 107 (94-126) |
+| production-sized | single | 55.93 57.81 57.87 58.00 58.99 60.02 60.38 60.50 61.84 | 58.99 | 102 (91-120) |
+| production-sized | port 0 | 60.49 60.79 60.89 61.50 61.65 61.69 66.28 71.89 74.49 | 61.65 | 108 (99-134) |
+| production-sized | port 1 | 61.42 61.66 62.11 62.73 62.90 64.23 70.25 71.16 73.07 | 62.90 | 115 (102-123) |
+
+One-minute load average 16.5 at the start and 12.4 at the end. A second run of
+the same binary at load 6.2 gave production-sized port 0 / port 1 medians of
+62.11 / 62.63 ns (small: 56.20 / 57.29). The production-sized owners therefore
+sit at 61-63 ns, about 2-3 ns over the gate.
+
+### Where the time goes
+
+Temporary rdtsc timers around the phases of `worker_step_at()` (not
+committed; the timers add overhead, and the means include the warm-up fill).
+Production-sized fixture, port 0 owner, three runs, ns per packet:
+
+| Phase | Range over 3 runs |
+|---|---:|
+| classify | 7.6-14.7 |
+| core admission (`hng_lines_offer_burst`) | 36.4-73.8 |
+| annotate the mbuf | 2.9-6.8 |
+| frontier snapshot | 0.8-2.1 |
+| merge and dequeue (`hng_lines_pop_merged`, per packet) | 27.3-48.5 |
+
+(The third run was at higher load; all phases grew together.) Admission and
+merge/dequeue are about 85% of the cost. There is no `perf` on this machine.
+
+### Method for the changes below
+
+The earlier method (separate runs of 9, then compare medians) cannot resolve
+2 ns when the load average is 17-60. Each change was built into its own
+binary and library. One round runs both binaries back to back, in alternating
+order, on the same CPUs, for both fixtures; the figure is the median over
+rounds of (new - old) p50, with the range. Load average was 16-43 during the
+divmod comparison and 28-60 during the prefetch comparisons, so absolute p50s
+in those runs were about 100 ns and are not comparable with the baseline
+above. Only the differences are used.
+
+### Changes tried
+
+| Change | Rounds | Result (new - old p50, median; range over rounds) | Kept |
+|---|---:|---|---|
+| Burst pop: one `hng_lines_pop_merged_burst` call per step instead of one call per packet (Core + `worker_step_at`) | one pair of 9-run sets (before the A/B method) | production-sized port 0 62.11 -> 62.23 ns, port 1 62.63 -> 62.44; no difference | no; Core test and equivalence held, then reverted |
+| Admission: one 128-bit division, remainder from the quotient (`0c0e0d0`) | 15 | small port 0 +0.60 (-8.25..+4.29), port 1 +0.46 (-7.14..+6.75); production-sized port 0 -1.51 (-18.19..+6.07), port 1 -3.25 (-15.16..+5.51); new faster in 12/15 and 14/15 production-sized rounds | yes: exact (new test pins the ceiling for rates that do not divide), saves a division, but the gain is inside the noise |
+| Prefetch input mbuf header, metadata and data line for the whole burst before classify (DPDS) | 15 and 25 | first 15: small -2.70 / -1.42, production-sized +1.90 / +8.36; then 25 rounds: small +1.30 / +0.78, production-sized -1.54 / +0.16; signs flip between sets | no: no effect distinguishable from zero |
+
+The divmod change keeps `service_ns` identical: the new test
+`service_time_is_the_exact_ceiling_for_rates_that_do_not_divide` compares it to
+`ceil(finish / c_bps)` for three rates, 6000 packets, with a numerator above
+64 bits; it passed before and after the change.
+
+The earlier prefetch of input mbufs (round 2) also showed nothing. Only the
+core-side prefetch of the FIFO slots helped.
+
+### Remaining options (not done)
+
+- Core admission is the largest phase. Each accepted packet updates about ten
+  statistics counters, two high-water marks (one computes the sum of both
+  FIFO lengths) and a 32-byte ledger entry. Counters that can be derived in
+  `stats()` (as `dequeued` and `accepted_wire_bytes` already are) could be
+  removed from the packet path; this changes no output but was not measured.
+- A smaller or split ledger entry: `finish` is a `u128`; a `u64` base plus
+  offset would halve it.
+- Merge and dequeue run `ready()` and then `pop_ready()`, each computing
+  `ordinary_first()` and expanding the stored entry. One pass that returns the
+  popped entry directly would remove that duplicate work. The merged pop is
+  one core call per packet; a burst call did not help.
+- Transparent huge pages for the FIFOs, and measurement on an idle or isolated
+  fixed-frequency core: the remaining gap (about 2-3 ns) is smaller than the
+  run-to-run spread on this machine, so the gate can only be judged there.

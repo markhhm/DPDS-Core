@@ -642,8 +642,8 @@ impl HngBuffer {
         if self.input_complete {
             self.release_q(now_ns);
         }
-        self.ready(now_ns, input_watermark_ns)?;
-        self.pop()
+        let p = self.ready(now_ns, input_watermark_ns)?;
+        self.pop_fifo(p.late)
     }
 
     /// Bytes reserved for both packet FIFOs and the service ledger.
@@ -651,12 +651,12 @@ impl HngBuffer {
         (self.ordinary.capacity() + self.late.capacity()) * std::mem::size_of::<Stored>()
             + self.service.capacity() * std::mem::size_of::<Service>()
     }
-    /// `try_pop` for a caller that has just seen `ready()` return this head.
-    pub(crate) fn pop_ready(&mut self, now_ns: u64) -> Option<HngPacket> {
+    /// `try_pop` after `ready()` returned a head in the selected late/ordinary FIFO.
+    pub(crate) fn pop_ready(&mut self, now_ns: u64, late: bool) -> Option<HngPacket> {
         if self.input_complete {
             self.release_q(now_ns);
         }
-        self.pop()
+        self.pop_fifo(late)
     }
     pub fn min_delay_ns(&self) -> u64 {
         self.minimum_delay_ns
@@ -681,10 +681,14 @@ impl HngBuffer {
     /// Pop transfers only the stored pointer; the host owns and frees payloads.
     /// The host checks the deadline before normal dequeue; cleanup may drain early.
     pub fn pop(&mut self) -> Option<HngPacket> {
-        let p = if self.ordinary_first() {
-            self.ordinary.pop_front()
-        } else {
+        self.pop_fifo(!self.ordinary_first())
+    }
+
+    fn pop_fifo(&mut self, late: bool) -> Option<HngPacket> {
+        let p = if late {
             self.late.pop_front()
+        } else {
+            self.ordinary.pop_front()
         }?
         .expand();
         self.stats.dequeued_l2_bytes += p.l2_bytes;

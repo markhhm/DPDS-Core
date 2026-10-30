@@ -345,6 +345,130 @@ fn merged_pop_matches_a_host_side_merge() {
     assert_eq!(manual, run(true));
 }
 
+#[test]
+fn merged_pop_preserves_full_records_at_ties_and_readiness_bounds() {
+    use dpds_core::hng::{HngPacket, HngStats, PushResult};
+    use dpds_core::hng_engine::*;
+    use std::mem::MaybeUninit;
+    for sealed in [false, true] {
+        let config = json()
+            .replace("\"q_bytes\":80", "\"q_bytes\":160")
+            .replace("\"t_ns\":0", "\"t_ns\":10")
+            .replace("\"delta_ns\":0", "\"delta_ns\":100")
+            .replace("\"p\":\"0\"", "\"p\":\"0.5\"")
+            .replace("\"seed\":1", "\"seed\":3")
+            .replace("\"seed\":2", "\"seed\":3");
+        unsafe {
+            let e = Box::into_raw(Box::new(Engine::from_json(&config).unwrap()));
+            let lines = [hng_engine_line(e, 0), hng_engine_line(e, 1)];
+            for seq in 0..4u64 {
+                assert_eq!(
+                    hng_line_offer(
+                        lines[seq as usize % 2],
+                        (seq + 1) as usize as *mut _,
+                        76,
+                        0,
+                        seq
+                    ),
+                    PushResult::Accepted
+                );
+            }
+            let mut out = MaybeUninit::<HngPacket>::uninit();
+            for (now, w, limit) in [(209, 200, 210), (210, 199, 210), (210, 200, 209)] {
+                assert_eq!(
+                    hng_lines_pop_merged(
+                        lines.as_ptr(),
+                        [w, w].as_ptr(),
+                        2,
+                        now,
+                        limit,
+                        out.as_mut_ptr()
+                    ),
+                    -1
+                );
+            }
+            assert_eq!(
+                hng_lines_pop_merged(
+                    lines.as_ptr(),
+                    [200, 200].as_ptr(),
+                    2,
+                    210,
+                    210,
+                    std::ptr::null_mut()
+                ),
+                -1
+            );
+            if sealed {
+                hng_engine_end_input(e);
+            }
+            let w = if sealed { [0, 0] } else { [200, 200] };
+            for seq in 0..4u64 {
+                assert_eq!(
+                    hng_lines_pop_merged(lines.as_ptr(), w.as_ptr(), 2, 210, 210, out.as_mut_ptr()),
+                    (seq % 2) as isize
+                );
+                let p = out.assume_init();
+                // Each line has late then ordinary; all four releases tie at 210.
+                assert_eq!(
+                    (
+                        p.packet_ptr as usize,
+                        p.ingress_seq,
+                        p.selection_seq,
+                        p.service_ns,
+                        p.deadline_ns,
+                        p.release_ns,
+                        p.clamp_extra_ns,
+                        p.packet_bytes,
+                        p.l2_bytes,
+                        p.wire_bytes,
+                        p.late
+                    ),
+                    (
+                        (seq + 1) as usize,
+                        seq,
+                        seq / 2,
+                        if seq < 2 { 100 } else { 200 },
+                        210,
+                        210,
+                        0,
+                        76,
+                        80,
+                        100,
+                        seq < 2
+                    )
+                );
+            }
+            assert_eq!(
+                hng_lines_pop_merged(lines.as_ptr(), w.as_ptr(), 2, 210, 210, out.as_mut_ptr()),
+                -1
+            );
+            for &line in &lines {
+                let mut stats = MaybeUninit::<HngStats>::uninit();
+                assert!(hng_line_stats(line, stats.as_mut_ptr()));
+                let s = stats.assume_init();
+                assert_eq!(
+                    (
+                        s.accepted,
+                        s.dequeued,
+                        s.selected_late,
+                        s.storage_bytes,
+                        s.dequeued_l2_bytes
+                    ),
+                    (2, 2, 1, 0, 160)
+                );
+                assert_eq!(
+                    (s.q_bytes, s.ledger_watermark_ns),
+                    if sealed { (0, 210) } else { (160, 0) }
+                );
+                assert_eq!(s.input_complete, sealed);
+            }
+            hng_engine_end_input(e);
+            assert!(hng_engine_drain_advance(e, 210));
+            assert!(hng_engine_destroy(e));
+        }
+    }
+}
+
 /// FIFO entries are one 64-byte cache line; the ledger needs only 16 bytes.
 #[test]
 fn stored_packets_fit_one_cache_line() {

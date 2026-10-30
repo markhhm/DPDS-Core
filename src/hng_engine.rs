@@ -774,20 +774,20 @@ pub unsafe extern "C" fn hng_lines_pop_merged(
     }
     let lines = std::slice::from_raw_parts(lines, n);
     let watermarks = std::slice::from_raw_parts(watermarks, n);
-    let mut best: Option<(usize, (u64, u64))> = None;
+    let mut best: Option<(usize, (u64, u64), bool)> = None;
     for (k, &l) in lines.iter().enumerate() {
         let Some(l) = l.as_ref() else { return -1 };
         if let Some(p) = l.buffer.ready(now_ns, watermarks[k]) {
             let key = (p.release_ns, p.ingress_seq);
-            if best.is_none_or(|(_, b)| key < b) {
-                best = Some((k, key));
+            if best.is_none_or(|(_, b, _)| key < b) {
+                best = Some((k, key, p.late));
             }
         }
     }
     match best {
-        Some((k, (release, _))) if release <= limit_ns => {
+        Some((k, (release, _), late)) if release <= limit_ns => {
             // ready() just returned this head; release_q cannot change heads.
-            match (*lines[k]).buffer.pop_ready(now_ns) {
+            match (*lines[k]).buffer.pop_ready(now_ns, late) {
                 Some(p) => {
                     *out = p;
                     k as isize

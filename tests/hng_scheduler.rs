@@ -215,7 +215,7 @@ fn malformed_config_and_clock_or_deadline_overflow_are_rejected() {
 fn mixed_seeded_stream_matches_sorted_deadline_oracle_and_replays() {
     for seed in 0u64..32 {
         let c = HngConfig {
-            q_bytes: 1_000_000,
+            q_bytes: 100_000_000,
             p: "0.5".parse().unwrap(),
             delta_ns: 100,
             storage_capacity_packets: 4096,
@@ -902,4 +902,34 @@ fn core_handoff_keeps_pre_outage_head_visible_for_later_tx_arbitration() {
     assert_eq!(b.tx_policy().gate(300), 0);
     // TX may execute after recovery; it must receive the older head too.
     assert_eq!(b.try_pop(250, 1000).unwrap().release_ns, 190);
+}
+
+/// service_ns is the exact rational finish time rounded up, also when the rate does not divide it
+/// and the numerator needs more than 64 bits.
+#[test]
+fn service_time_is_the_exact_ceiling_for_rates_that_do_not_divide() {
+    for c_bps in [3_000_000_000u64, 7_000_000_001, 100_000_000_000] {
+        let mut b = HngBuffer::new(HngConfig {
+            c_bps,
+            q_bytes: 100_000_000,
+            storage_capacity_packets: 4096,
+            storage_capacity_bytes: 10_000_000,
+            ..config()
+        })
+        .unwrap();
+        let mut finish = 0u128;
+        for i in 0..2000u64 {
+            let now = 50_000_000_000 + i * 37;
+            let bytes = 40 + (i * 13 % 1400) as u32;
+            assert_eq!(
+                b.push_with_seq(packet(1 + i as usize), bytes, now, i),
+                PushResult::Accepted
+            );
+            let wire = u128::from((u64::from(bytes) + 4).max(64) + 20);
+            finish = finish.max(u128::from(now) * u128::from(c_bps)) + wire * 8_000_000_000;
+            let want = finish.div_ceil(u128::from(c_bps));
+            let p = b.pop().unwrap();
+            assert_eq!(u128::from(p.service_ns), want, "c_bps {c_bps} packet {i}");
+        }
+    }
 }

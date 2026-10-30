@@ -459,8 +459,10 @@ impl HngBuffer {
         else {
             return PushResult::InvalidInput;
         };
-        let service_ns = finish / u128::from(self.config.c_bps)
-            + u128::from(finish % u128::from(self.config.c_bps) != 0);
+        // One 128-bit division: the remainder follows from the quotient.
+        let c = u128::from(self.config.c_bps);
+        let quotient = finish / c;
+        let service_ns = quotient + u128::from(finish != quotient * c);
         let Ok(service_ns) = u64::try_from(service_ns) else {
             return PushResult::InvalidInput;
         };

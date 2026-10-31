@@ -42,7 +42,7 @@ class ConvertedReplayTests(unittest.TestCase):
             self.assertEqual(stats["source"]["n_late"], 5)
             self.assertEqual(stats["engine"]["n_late"], 10)
             self.assertNotEqual(stats["source"]["histogram"], stats["engine"]["histogram"])
-            self.assertEqual(stats["status"], "PROPOSAL_PENDING")
+            self.assertEqual(stats["status"], "INCONCLUSIVE")
 
     def test_fixed_two_point_output_is_measured_in_source_order(self):
         self.assertTrue(hasattr(self.verifier, "verify_fixed"), "two-point engine comparison is absent")

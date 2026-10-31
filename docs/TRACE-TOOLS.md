@@ -168,7 +168,7 @@ is imported or copied.
    between the samples. Both sides follow the same trend; other pairs interpolate.
 3. Raise extrapolated delay to the lowest received delay within 1 s around the
    pair. The floor changes neither the step detector nor the source samples.
-4. Subdivide sloping pieces using `ceil(change / 0.05 ms - 1e-9)`, without a cap.
+4. Subdivide sloping pieces using `ceil(change / 0.01 ms - 1e-9)`, without a cap.
    Include source and switch boundaries. Round absolute boundaries to integer
    microseconds using ties-to-even, then evaluate delay at each rounded midpoint.
 5. Round native latency to 1,000 ns using ties-to-even, then add the explicit
@@ -284,9 +284,12 @@ the synthetic engine replay remains mandatory. Software replay is not G2.
 Replay reports also contain `realized_lateness`: actual output run histograms,
 spans, late share and P(next late | late), compared with the original source.
 They use release minus arrival, including C service and clamp, and source send
-order rather than reordered output order. Run-length CDF distance and probability
-differences are descriptive under the [pending fidelity proposal](proposals/m3-run-fidelity.md).
-The status stays `PROPOSAL_PENDING` regardless of those values.
+order rather than reordered output order. Fidelity is evaluated under the [adopted fidelity specification](proposals/m3-run-fidelity.md).
+The status is PASS, FAIL or INCONCLUSIVE per window. Late-count and identity-matched
+changed-run budgets use integer ceilings of 5% (floors of two packets and one run);
+the conditional-probability budget is one percentage point. Both source and output
+need at least 100 late packets, 20 runs and 100 eligible late-to-next pairs.
+CDF distance remains descriptive. Historical reports retain their original verdicts.
 
 For fixed two-point mode, independently check p/delta selection and measure its
 actual output against the known source distribution:
@@ -327,6 +330,41 @@ reported sample counts and cannot establish histogram equivalence.
 
 Midpoint sampling and latency rounding can change a few threshold classifications
 even when the HNG and TheaterQ rows are identical. The reports retain those
-differences. No numerical tolerance for run-length fidelity has been registered;
-the tools do not turn descriptive statistics into an acceptance claim. They
-also do not equate packet-run lengths across different probe cadences.
+differences. The adopted converter subdivision tolerance is 0.01 ms.
+The tools do not equate packet-run lengths across different probe cadences.
+
+## Optional pcap PMD replay
+
+`pcap_replay.py` implements the same JSON stdin/stdout runner protocol as
+`trace_replay`. It transports generated 76-byte VLAN frames through DPDK
+`net_pcap`, retains their source arrival nanoseconds in the payload and runs
+those mbufs through the current core's Engine C API. Every egress frame is
+checked against the engine's recorded packet identity, bytes and order.
+Capture timestamps do not pace arrivals and are not wire measurements.
+This exercises the core FFI and PMD transport with a deterministic adapter;
+it does not exercise the host application's production RX/worker/TX threads.
+
+This optional path needs an existing DPDK build with the pcap PMD and libpcap.
+The ordinary Rust/Python checks do not require DPDK. Build without `NDEBUG`:
+
+```sh
+cargo build --locked --lib --bin trace_replay
+cc -O2 -Wall -Wextra -Werror -UNDEBUG $(pkg-config --cflags libdpdk) \
+  -Itarget scripts/pcap_trace_replay.c -Ltarget/debug -ldpds_core \
+  $(pkg-config --libs libdpdk) -Wl,-rpath,"$PWD/target/debug" \
+  -o target/pcap_trace_replay
+export HNG_PCAP_BINARY="$PWD/target/pcap_trace_replay"
+# Activate the NumPy venv and expose your DPDK/libpcap shared libraries normally.
+python -B -m unittest discover -s tests -p test_pcap_replay.py
+python scripts/replay_trace.py normalized.json --source source.zip \
+  --runner scripts/pcap_replay.py --output replay.json
+```
+
+`HNG_PCAP_EVIDENCE` optionally names a **new** evidence directory; otherwise the
+adapter uses temporary files. Preserved artifacts include the input/output pcap,
+engine records, actual Engine configuration and PMD log. The adapter allocates
+an explicit no-huge heap for the offered frames and raises storage capacity to
+the declared startup envelope; it preserves C, Q, t, delta, probability and seed.
+The generated trace wrapper identifies the supplied profile JSON by hash; the
+original source/normalized manifest remains the upstream provenance record.
+Independent packet-oracle equality is still mandatory in `replay_trace.py`.

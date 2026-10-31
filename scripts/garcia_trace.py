@@ -201,7 +201,7 @@ class DelayCurve:
                 pieces = [(left, switch, gradient * (switch - left)),
                           (switch, right, gradient * (right - switch))]
             for begin, finish, change in pieces:
-                divisions = max(1, int(np.ceil(change / 0.05 - 1e-9)))
+                divisions = max(1, int(np.ceil(change / 0.01 - 1e-9)))
                 boundaries.extend(begin + (finish - begin) * np.arange(divisions) / divisions)
         microseconds = np.unique(np.round(np.asarray(boundaries) * 1e6)).astype(np.int64)
         microseconds = microseconds[(microseconds >= round(start * 1e6)) &
@@ -328,7 +328,7 @@ def convert(path, start_ns, duration_ns, offset_ns=0, seed=1, late_threshold_ns=
               "offset_application": "after native 1000 ns latency quantization", "seed": seed,
               "rng": "numpy-PCG64-full-source-pairs", "step_ms": 1, "trend_window_ns": 5_000_000,
               "slope_clip_ms_per_ms": 1, "floor_window_ns": 1_000_000_000,
-              "adaptive_ns": 50_000, "boundary_quantum_ns": 1000, "latency_quantum_ns": 1000,
+              "adaptive_ns": 10000, "boundary_quantum_ns": 1000, "latency_quantum_ns": 1000,
               "missingness": "unknown unregistered endpoints; no loss inference; sequence gaps break diagnostic runs",
               "expected_sequence_bounds": {"first": expected_first_seq, "last": expected_last_seq},
               "late_threshold_ns": late_threshold_ns}

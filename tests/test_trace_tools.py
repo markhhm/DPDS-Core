@@ -95,12 +95,11 @@ class ConverterTests(unittest.TestCase):
 
     def test_linear_midpoints_adaptive_rows_and_latency_rounding(self):
         path = self.source("seq_nr,dl_t0,owd_t0_t1\n1,0,20000000\n2,1000000,20200000\n3,2000000,20400000\n")
-        document, _ = self.tool.convert(path, 0, 1_000_000, 0, 1, 20_000_000)
+        document, manifest = self.tool.convert(path, 0, 1_000_000, 0, 1, 20_000_000)
+        self.assertEqual(manifest["recipe"]["adaptive_ns"], 10_000)
         self.assertEqual(document["profile"]["rows"], [
-            {"at_ns": 0, "t_ns": 20_025_000, "loss": "0", "outage": False},
-            {"at_ns": 250_000, "t_ns": 20_075_000, "loss": "0", "outage": False},
-            {"at_ns": 500_000, "t_ns": 20_125_000, "loss": "0", "outage": False},
-            {"at_ns": 750_000, "t_ns": 20_175_000, "loss": "0", "outage": False},
+            {"at_ns": i * 50_000, "t_ns": 20_005_000 + i * 10_000,
+             "loss": "0", "outage": False} for i in range(20)
         ])
 
     def test_registered_corridors_apply_exact_formula_and_record_components(self):

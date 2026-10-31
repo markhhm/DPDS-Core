@@ -5,6 +5,10 @@
 This report covers the seven-item review of the trace pipeline. It records
 software behavior and leaves milestone acceptance to the research owner.
 
+Historical verdicts below are preserved. The adopted
+[fidelity specification](../proposals/m3-run-fidelity.md) and
+[canonical replay assessment](m3-canonical.md) supersede the pending-policy discussion.
+
 | Review item | Delivered behavior and evidence |
 | --- | --- |
 | 1 | Actual HngBuffer replay of converted synthetic and external Garcia traces; independent rational service/deadline oracle; downward-step clamp and zero unexpected reordering. Commit `962fdc2`. |

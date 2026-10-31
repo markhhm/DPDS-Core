@@ -69,12 +69,59 @@ def check_events(expected, actual):
         raise ValueError("engine records differ from independent service/deadline/order oracle")
 
 
+def changed_run_count(seq, arrivals, source_late, engine_late, cadence):
+    """Charge max(source, output) runs in each changed packet-overlap component."""
+    connected = (np.diff(seq) == 1) & (np.diff(arrivals) <= 3 * cadence)
+    runs = []
+    for side, flags in enumerate((source_late, engine_late)):
+        starts = np.flatnonzero(flags & np.r_[True, ~(flags[:-1] & connected)])
+        ends = np.flatnonzero(flags & np.r_[~(flags[1:] & connected), True])
+        runs.extend((int(start), int(end), side) for start, end in zip(starts, ends))
+    groups, end, changed = [[], []], -1, 0
+    for start, stop, side in sorted(runs):
+        if start > end:
+            if groups[0] != groups[1]:
+                changed += max(map(len, groups))
+            groups = [[], []]
+        groups[side].append((start, stop))
+        end = max(end, stop)
+    if groups[0] != groups[1]:
+        changed += max(map(len, groups))
+    return changed
+
+
+def evaluate_fidelity(source, engine, changed_runs):
+    """Adopted per-window budgets; exact integers avoid floating boundary errors."""
+    late_budget = max(2, (source["n_late"] + 19) // 20)
+    run_budget = max(1, (source["n_runs"] + 19) // 20)
+    insufficient = [f"{side}.{key}" for side, stats in (("source", source), ("engine", engine))
+                    for key, minimum in (("n_late", 100), ("n_runs", 20), ("late_pair_denominator", 100))
+                    if stats[key] < minimum]
+    es, ee = source["late_pair_denominator"], engine["late_pair_denominator"]
+    probability_ok = None if not es or not ee else (
+        100 * abs(source["late_pair_numerator"] * ee - engine["late_pair_numerator"] * es) <= es * ee)
+    checks = {"late_count": abs(engine["n_late"] - source["n_late"]) <= late_budget,
+              "changed_runs": changed_runs <= run_budget, "p_next": probability_ok}
+    coverage = source["n_samples"] == engine["n_samples"]
+    status = ("FAIL" if not coverage else "INCONCLUSIVE" if insufficient else
+              "PASS" if all(checks.values()) else "FAIL")
+    return {"status": status, "policy": "m3-fidelity-v1", "identity_count_match": coverage,
+            "late_count_budget": late_budget, "changed_run_budget": run_budget,
+            "changed_runs": changed_runs, "checks": checks, "insufficient_evidence": insufficient}
+
+
 def measure_lateness(seq, arrivals, original, baseline, actual, offset_ns, threshold_ns, cadence):
     ordered = sorted(actual, key=lambda event: event["ingress_seq"])
+    if (not len(seq) or len(ordered) != len(seq) or
+            any(event["ingress_seq"] != i or event["id"] != i + 1 for i, event in enumerate(ordered))):
+        raise ValueError("engine packet identity/count mismatch")
     realized = np.array([event["release_ns"] - int(arrival) - offset_ns
                          for event, arrival in zip(ordered, arrivals)], dtype=np.float64)
-    source_stats = late_runs(seq, arrivals, original - baseline > threshold_ns, cadence)
-    engine_stats = late_runs(seq, arrivals, realized - baseline > threshold_ns, cadence)
+    source_late, engine_late = original - baseline > threshold_ns, realized - baseline > threshold_ns
+    source_stats = late_runs(seq, arrivals, source_late, cadence)
+    engine_stats = late_runs(seq, arrivals, engine_late, cadence)
+    fidelity = evaluate_fidelity(source_stats, engine_stats,
+                                changed_run_count(seq, arrivals, source_late, engine_late, cadence))
     first, second = source_stats["histogram"], engine_stats["histogram"]
     cdf_first = cdf_second = distance = 0.0
     for length in sorted(set(first) | set(second), key=int):
@@ -83,7 +130,7 @@ def measure_lateness(seq, arrivals, original, baseline, actual, offset_ns, thres
         distance = max(distance, abs(cdf_first - cdf_second))
     p_source = source_stats["p_next_late_given_late"]
     p_engine = engine_stats["p_next_late_given_late"]
-    return {"status": "PROPOSAL_PENDING", "ordering_basis": "original ingress/send order",
+    return {**fidelity, "ordering_basis": "original ingress/send order",
             "engine_delay": "release_ns-arrival_ns; includes C service and clamp; offset removed exactly",
             "threshold_ns": threshold_ns, "source": source_stats, "engine": engine_stats,
             "run_length_cdf_distance": distance,

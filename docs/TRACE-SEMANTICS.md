@@ -13,6 +13,12 @@ route IDs at detected steps and preserves order within each route. A downward
 step can therefore produce different packet deadlines/order despite identical
 configured intervals. Configuration equality does not certify deadline equality.
 
+The adopted subdivision tolerance is 0.01 ms (`adaptive_ns=10000`), with
+1,000 ns boundary and latency quantization. Configured equality requires
+TheaterQ reference rows generated with the same `adaptive_ms=0.01` setting.
+The earlier 0.05 ms recipe remains historical; its sequence is not silently
+relabeled as equal to the selected recipe.
+
 | Operation | P1 | TheaterQ reference |
 | --- | --- | --- |
 | Delay lookup | Rounded virtual C/Q service completion | Active row at dequeue wall time |

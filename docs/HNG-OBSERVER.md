@@ -272,6 +272,14 @@ registered ingress-to-egress line mapping; port IDs need not be contiguous.
 An unknown actor, conflicting binding, or unregistered queue cannot establish
 conclusive custody. Multiple writers may not share an SPSC queue.
 
+Native v2 provenance also identifies the stage that can attest a record.
+RX actors emit packets, frontiers and ENDs; schedulers emit offers, dispatches,
+and model-loss, storage, invalid-input and shutdown terminals. Handoff-loss
+terminals can come from RX or scheduler actors. TX actors emit attempts,
+terminal TX drops and missed-deadline outage drops; control emits counters.
+Enforce these stage/reason constraints on both raw and normalized evidence.
+A wrong-stage actor cannot establish complete or conclusive custody.
+
 Each attempt retains the complete registered `consumed_dispatch` map. Prefixes
 are **owner-local**: a dedicated TX owner reports zero for unowned queues.
 That zero neither claims the queue nor resets its actual owner's progress.

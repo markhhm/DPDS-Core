@@ -263,11 +263,11 @@ end to end for this ledger, so other rows are claims to audit, not new evidence.
 | 16 | Bounded streaming join | `a058f49`, `e44eafd` | none for software |
 | 17 | Wider differential coverage | `4cd8a84`, `962e12f`, core `843c14a` | none |
 | 18 | Fault injection through the real PMD path | online-statistics fixtures only | pcap/net_ring DUT injection with mixed population |
-| 19 | Native exporter | `eb75f37`, `9952a4b`, `29f7d23`; `96c5fb3` rejects 7-lcore capture before startup | 7-lcore observation remains unsupported |
+| 19 | Native exporter | `eb75f37`, `9952a4b`, `29f7d23`; core `50d9e15` specifies v2; host `8b40aa5`, `889e2c9`, `0f101c8` add seven-lcore software capture | physical-PMD capture and timestamps remain separate |
 | 20 | Open-source items | SPDX and path scrub in earlier commits; host `0a024dd` installs pinned-core trace requirements with Python 3.13; `66fe088` requires the trace suite to run with zero skips | event/report format document; CI wiring of the missing PMD fault-injection tests |
 
-Added by the 2026-10-30 integration: observation in the 7-lcore layout is not
-supported (the host refuses it at startup), listed after item 12.
+The initial integration rejected seven-lcore observation before startup. The
+2026-11-01 update below implements the approved per-writer SPSC design.
 
 ## Review fixes and four-CPU timing (2026-10-30)
 
@@ -296,7 +296,7 @@ zero skips. Full checks and pushes were serialized with the shared test lock.
 On host commit `96c5fb3`, with affinity restricted to logical CPUs `0,1,2,3`:
 
 ```sh
-flock /tmp/hng-tests.lock taskset -c 0,1,2,3 /usr/bin/time \
+taskset -c 0,1,2,3 /usr/bin/time \
   -f 'wall_seconds=%e user_seconds=%U sys_seconds=%S exit=%x' \
   meson test -C build --no-rebuild g2-software --print-errorlogs --verbose
 ```
@@ -333,11 +333,83 @@ these integration commits.
 | Merge current host and align the pin | Host `fed7ea0` merges `0a024dd` and pins core `57af73e`; local Meson 35/35 with zero skips and [remote CI](https://github.com/markhhm/DPDS/actions/runs/41109396603) pass | none for code integration; see the host submodule pin for the final documentation revision |
 | Required trace execution | Host `66fe088`; actual `test_trace_tools` suite: 29 passed, zero skips; the guard rejects empty, skipped and failed suites | none in the required-suite guard; optional external-source replay remains separate |
 | Shared-egress trace coverage, review item 12 | Existing checker and fixed-line sealed-bundle fixture `e916c9e` | held-trace/cable sealed-bundle tests; precise FAIL versus INCONCLUSIVE assertions |
-| Seven-lcore observation | Startup rejection `96c5fb3` remains active | approved per-writer SPSC/native v2 design; specification §5.3 must be updated before support implementation; retain v1 producer-5 rejection tests |
+| Seven-lcore observation | Core `50d9e15` updates §5.3 first; host `8b40aa5` validates v2 ownership, `889e2c9` separates writers, `0f101c8` enables capture after the preceding full checks passed | physical capture/qualification and independent M2 review; native-v1 producer-5 rejection stays intact |
 | Remaining report and apparatus work | Existing runtime v1 format and Done/Open ledger retained | CSV/spec audit, format documentation, real-PMD mixed-population faults, physical timestamps/calibration and independent review |
 
 The zero-skip requirement applies to the required synthetic trace-tool suite.
 The separate optional external-source replay test may still report a skip when
 its input is not supplied; that skip is not counted as trace-suite execution.
-Seven-lcore support and changes to the runtime v1 report format are not part of
-this integration.
+That realignment did not enable seven-lcore support. The following update does;
+the runtime v1 report and CSV formats remain unchanged.
+
+
+## Seven-lcore software capture and test runtime (2026-11-01)
+
+This update is software-only. It does not establish accuracy, throughput,
+physical timestamp support or physical G2 qualification. Core `50d9e15` changed
+observer §5.3 before the implementation commits. P1 checks and pushes no longer
+use the shared test lock from the historical measurements above; the command
+example above now omits that lock.
+
+| Item | Done (commit) | Open |
+| --- | --- | --- |
+| Version and actor contract | Core `50d9e15`; host `8b40aa5` reads native v1/five producers and v2/seven producers, binds queue actors and preserves owner-local prefixes | none for the software contract; v1 still rejects producer 5 |
+| Per-writer SPSC queues | Host `889e2c9`: IDs 0–4 unchanged, RX1=5, TX1=6; immutable ordered ports, RX ownership checks, writer-specific END/error accounting and dedicated TX queue masks | capture throughput on hardware remains unmeasured |
+| Seven-lcore startup | Host `0f101c8`: guard removed after the preceding full 36-test check passed; the new positive test first failed at the old startup rejection, then passed with both directions captured | local full check: 36 Meson targets, zero skips; latest remote CI remains a separate result |
+| Wrong-stage actor evidence | Host `9d5f601`: raw adapter, normalized protocol and direct live/debug custody reject invalid native-v2 stage/reason claims; 58 related tests and 12 adapter tests pass, followed by a full 36-target check with zero skips | none in the stage/reason checks; no format change |
+| Concurrent shutdown acceptance | Host `799246d`: deterministic paused reservation, delayed direction END and a stalled reader; each checks complete drain or explicit capture loss as appropriate | these tests do not establish physical capacity or snapshot-publication performance |
+| Complete test coverage within the local four-CPU budget | Host `7c3d419`: all original 15 G2 test modules retained, plus regression coverage; 183 Python tests; full Meson target 39.21 s on CPUs 0–3 | timings are machine-dependent, not a remote CI timing guarantee |
+| Remaining M2 work | Runtime report v1 and CSV formats retained | held-trace/cable sealed-bundle coverage, CSV/spec audit, format document, real-PMD mixed-population faults, physical clocks/calibration and independent review |
+
+The native queue arrays occupy `7*K*R` bytes, where `K` is the configured
+per-writer capacity and `R` is the raw record size. This is `2*K*R` more than the
+five-queue layout. Idle producer queues remain allocated in smaller layouts.
+This formula is allocation accounting, not a measured RSS or packet-rate result.
+
+`observer_7` uses concurrent RX and TX owner pairs with non-contiguous ports
+7 and 13, actual reservation/commit queues, a refused TX prefix and a later
+retry. It checks `[8,0]` and `[0,8]` consumed prefixes, per-producer health,
+complete mbuf return, immutable ports and rejection of an END from the wrong
+RX owner. The bounded-queue test now exercises overflow on all seven queues.
+`799246d` adds an RX1 reservation paused while TX1 publishes a later record,
+then verifies both losses on abort; RX0 END while RX1 is still running; and
+concurrent END writers against a full nonblocking socket. These are observer
+shutdown tests, not physical or concurrent-snapshot performance measurements.
+`observer-export` checks observed and unobserved forwarding at 2, 3, 4, 5 and
+7 lcores, frame bytes, complete stream seals, actor identities and queue-local
+prefixes. The old native-v1 producer-5 rejection fixture remains unchanged.
+
+The G2 speedup preserves 1,048,576 differential ingress events over 32 seeds,
+every Fraction-oracle field comparison, the outcome population and the original
+production-output SHA-256:
+
+`06358320bb13231932b49badf56cf5d8b8ac361ff673506afc81af97b1635f5b`
+
+Independent seeds use at most four worker processes. Online cells avoid duplicate
+sampling hashes and allocate histograms only when a stratum first appears.
+The online and remaining unittest groups run concurrently and both must finish;
+a failure in either group fails the target. Sampling rules, G2 thresholds,
+fixture populations, timeout (180 s) and required trace zero-skip checks are
+unchanged.
+
+Current local timing command, after building the pinned core and host:
+
+```sh
+taskset -c 0,1,2,3 meson test -C build --no-rebuild g2-software --print-errorlogs
+```
+
+At host `7c3d419`, the normal pre-push check passed all 35 Meson targets with
+zero skips; its full G2 target took 39.21 s under that four-CPU affinity.
+Both [push CI](https://github.com/markhhm/DPDS/actions/runs/41241840317) and
+[PR CI](https://github.com/markhhm/DPDS/actions/runs/41241835744) passed. Their
+G2 durations were 82.01 s and 62.07 s respectively. The accepted sub-60-second
+budget is the local four-CPU measurement; these separate CI times are not
+claimed to meet it. No timeout was extended and no hook or test was bypassed.
+
+The enabled layout (`0f101c8`), actor validation fix (`9d5f601`) and concurrent
+shutdown coverage (`799246d`) each passed the normal full host check: 36 Meson
+targets, zero skips. The [enabled-layout CI](https://github.com/markhhm/DPDS/actions/runs/41243217131)
+also passed. Later revisions and the final submodule pin still require their
+own CI; these earlier results are not a claim about an untested head.
+Core `3034368` merges the current `hng/core` (`2afe493`) so the final observation
+pin also includes the already merged scheduler and metadata improvements.

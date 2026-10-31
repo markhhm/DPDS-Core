@@ -286,7 +286,7 @@ impl<T: Copy> Ring<T> {
 }
 
 struct Service {
-    finish: u128,
+    service_ns: u64,
     l2_bytes: u64,
 }
 
@@ -335,7 +335,7 @@ impl HngBuffer {
         let late = Ring::new(config.storage_capacity_packets, empty)
             .map_err(|_| "late storage allocation failed")?;
         service.resize_with(service.capacity(), || Service {
-            finish: 0,
+            service_ns: 0,
             l2_bytes: 0,
         });
         service.clear();
@@ -522,7 +522,10 @@ impl HngBuffer {
         };
         self.finish = finish;
         self.trace_cursor = trace_cursor;
-        self.service.push_back(Service { finish, l2_bytes });
+        self.service.push_back(Service {
+            service_ns,
+            l2_bytes,
+        });
         self.stats.q_bytes += l2_bytes;
         self.stats.q_high_water_bytes = self.stats.q_high_water_bytes.max(self.stats.q_bytes);
         if let Some(result) = trace_drop {
@@ -578,8 +581,8 @@ impl HngBuffer {
     /// Release Q on service completion, independently of propagation storage.
     fn release_q(&mut self, now_ns: u64) {
         self.stats.ledger_watermark_ns = now_ns;
-        let now = u128::from(now_ns) * u128::from(self.config.c_bps);
-        while self.service.front().is_some_and(|s| s.finish <= now) {
+        // Integer clocks: ceil(finish / C) <= now iff finish <= now * C.
+        while self.service.front().is_some_and(|s| s.service_ns <= now_ns) {
             self.stats.q_bytes -= self.service.pop_front().unwrap().l2_bytes;
         }
     }
@@ -653,8 +656,8 @@ impl HngBuffer {
         if self.input_complete {
             self.release_q(now_ns);
         }
-        self.ready(now_ns, input_watermark_ns)?;
-        self.pop()
+        let p = self.ready(now_ns, input_watermark_ns)?;
+        self.pop_fifo(p.late)
     }
 
     /// Bytes reserved for both packet FIFOs and the service ledger.
@@ -662,12 +665,12 @@ impl HngBuffer {
         (self.ordinary.capacity() + self.late.capacity()) * std::mem::size_of::<Stored>()
             + self.service.capacity() * std::mem::size_of::<Service>()
     }
-    /// `try_pop` for a caller that has just seen `ready()` return this head.
-    pub(crate) fn pop_ready(&mut self, now_ns: u64) -> Option<HngPacket> {
+    /// `try_pop` after `ready()` returned a head in the selected late/ordinary FIFO.
+    pub(crate) fn pop_ready(&mut self, now_ns: u64, late: bool) -> Option<HngPacket> {
         if self.input_complete {
             self.release_q(now_ns);
         }
-        self.pop()
+        self.pop_fifo(late)
     }
     pub fn min_delay_ns(&self) -> u64 {
         self.minimum_delay_ns
@@ -692,10 +695,14 @@ impl HngBuffer {
     /// Pop transfers only the stored pointer; the host owns and frees payloads.
     /// The host checks the deadline before normal dequeue; cleanup may drain early.
     pub fn pop(&mut self) -> Option<HngPacket> {
-        let p = if self.ordinary_first() {
-            self.ordinary.pop_front()
-        } else {
+        self.pop_fifo(!self.ordinary_first())
+    }
+
+    fn pop_fifo(&mut self, late: bool) -> Option<HngPacket> {
+        let p = if late {
             self.late.pop_front()
+        } else {
+            self.ordinary.pop_front()
         }?
         .expand();
         self.stats.dequeued_l2_bytes += p.l2_bytes;

@@ -991,3 +991,101 @@ fn service_time_is_the_exact_ceiling_for_rates_that_do_not_divide() {
         }
     }
 }
+
+#[test]
+fn q_release_matches_rational_finish_at_integer_clock_boundaries() {
+    use dpds_core::hng::{OutageAction, TerminalPolicy, TraceProfile, TraceRow};
+    for c_bps in [3_000_000_000, 7_000_000_001, 100_000_000_000, u64::MAX] {
+        for base in [0, 50_000_000_000, u64::MAX - 10_000] {
+            for sealed in [false, true] {
+                for outcome in [
+                    PushResult::Accepted,
+                    PushResult::TraceLoss,
+                    PushResult::TraceOutage,
+                ] {
+                    let c = HngConfig {
+                        c_bps,
+                        q_bytes: 5000,
+                        t_ns: 0,
+                        ..config()
+                    };
+                    let mut b = if outcome == PushResult::Accepted {
+                        HngBuffer::new(c).unwrap()
+                    } else {
+                        HngBuffer::with_trace(
+                            c,
+                            TraceProfile {
+                                end_ns: u64::MAX,
+                                terminal_horizon_ns: None,
+                                terminal: TerminalPolicy::Error,
+                                outage_action: OutageAction::Drop,
+                                loss_seed: 0,
+                                rows: vec![TraceRow {
+                                    at_ns: 0,
+                                    t_ns: 0,
+                                    loss: if outcome == PushResult::TraceLoss {
+                                        Probability::ONE
+                                    } else {
+                                        Probability::ZERO
+                                    },
+                                    outage: outcome == PushResult::TraceOutage,
+                                }],
+                            },
+                        )
+                        .unwrap()
+                    };
+                    let mut finish = u128::from(base) * u128::from(c_bps);
+                    let mut events = Vec::new();
+                    for (i, bytes) in [60, 76, 1514, 40].into_iter().enumerate() {
+                        assert_eq!(b.push(packet(i + 1), bytes, base), outcome);
+                        let l2 = (u64::from(bytes) + 4).max(64);
+                        finish += u128::from(l2 + 20) * 8_000_000_000;
+                        events.push((finish, l2));
+                    }
+                    if outcome == PushResult::Accepted {
+                        for &(finish, _) in &events {
+                            assert_eq!(
+                                u128::from(b.pop().unwrap().service_ns),
+                                finish.div_ceil(u128::from(c_bps))
+                            );
+                        }
+                    }
+                    assert!(b.is_empty());
+                    assert_eq!(b.stats().q_bytes, 1726);
+                    if sealed {
+                        b.end_input();
+                    }
+                    let mut times: Vec<_> = events
+                        .iter()
+                        .flat_map(|&(finish, _)| {
+                            let t = u64::try_from(finish.div_ceil(u128::from(c_bps))).unwrap();
+                            [t - 1, t]
+                        })
+                        .collect();
+                    times.sort_unstable();
+                    times.dedup();
+                    for now in times {
+                        if sealed {
+                            assert!(b.try_pop(now, 0).is_none());
+                        } else {
+                            // Oversized probes age Q without adding another service event.
+                            assert_eq!(b.push(packet(100), 6000, now), PushResult::QDrop);
+                        }
+                        let expected: u64 = events
+                            .iter()
+                            .filter(|(finish, _)| *finish > u128::from(now) * u128::from(c_bps))
+                            .map(|(_, bytes)| bytes)
+                            .sum();
+                        assert_eq!(
+                            b.stats().q_bytes,
+                            expected,
+                            "C={c_bps} base={base} now={now} sealed={sealed} outcome={outcome:?}"
+                        );
+                        assert_eq!(b.stats().ledger_watermark_ns, now);
+                    }
+                    assert!(!b.has_backlog());
+                }
+            }
+        }
+    }
+}

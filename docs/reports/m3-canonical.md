@@ -214,3 +214,26 @@ Stage 1 controls; they are unaffected by converter subdivision and are not a LEO
 No physical run, Git operation, pre-push hook, CI or new detector-v3 projection forms part of this adoption.
 Physical validation still requires at least five independent repeats per cell (estimate), all passing.
 Formal milestone and hardware acceptance remain separate from these software fidelity results.
+
+## Rerun on the integrated core (2026-11-01)
+
+A later rerun rebuilt the library and pcap adapter from integrated revision
+`f9a2303b7b0e050fabc90c39cf6ad70a3cf262d1`. All 56 registered cases ran
+serially with a 4 GiB address-space limit. Streamed hashes verified the reused
+0.01 ms profiles and reference arrays. No source window, phase, seed, model
+parameter, terminal HOLD rule or fidelity budget changed.
+
+The rerun checked 3,179,064 received packets through net_pcap and the core API.
+All independent service/deadline/release/clamp/identity/order checks and complete
+pcap frame comparisons passed with zero mismatches. This total includes
+corridors and overlapping windows, not independent source samples.
+
+Fidelity remains **24 PASS, 0 FAIL, 32 INCONCLUSIVE**. All ten historical
+0.05 ms failures still pass. Every actual record and full fidelity result
+matches the adopted 0.01 ms evidence. Insufficient windows remain listed.
+
+The independent rational oracle used hash-verified Step 2 arrays at each
+service completion. This rerun did not regenerate the TheaterQ reference or
+reconvert profiles. The external verification record has SHA-256
+`b95ae3de4d1a7ba832f2465ed04dcb773e0457e55a1f69b0dc460c8f4bafe01e`.
+These remain software-only results, not wire precision, throughput or G2 evidence.

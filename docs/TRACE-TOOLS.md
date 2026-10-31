@@ -330,9 +330,8 @@ reported sample counts and cannot establish histogram equivalence.
 
 Midpoint sampling and latency rounding can change a few threshold classifications
 even when the HNG and TheaterQ rows are identical. The reports retain those
-differences. No numerical tolerance for run-length fidelity has been registered;
-the tools do not turn descriptive statistics into an acceptance claim. They
-also do not equate packet-run lengths across different probe cadences.
+differences. The adopted converter subdivision tolerance is 0.01 ms.
+The tools do not equate packet-run lengths across different probe cadences.
 
 ## Optional pcap PMD replay
 

@@ -229,6 +229,20 @@ At terminal drain: `rx_returned = tx_accepted + sum(disjoint_terminal_drops) + s
 
 ### 5.3 Actual-time port arbitration
 
+Native v2 binary capture may declare the optional raw-header field
+`capture_scope="physical"`. Only the explicit physical binary path may emit it:
+all selected devices must use a supported mlx5 hardware driver/bus pair
+(`mlx5_pci`/`pci` or `mlx5_auxiliary`/`auxiliary`), and the identity policy must be
+Stage 1. PCI membership alone does not distinguish a physical NIC from a
+paravirtual device. Missing scope preserves the legacy software-only header;
+v1 cannot declare this extension. The adapter must preserve physical scope in
+its capture summary and label NIC counter sources `physical-pmd`, retaining
+`overlapping_diagnostic` semantics. This declaration does not provide timestamp
+calibration, external packet observations, or G2 qualification. JSON pipe capture
+continues to reject physical devices. Software header and normalized bytes stay
+unchanged.
+
+
 Per-line release sorting alone cannot validate two lines sharing a port during outages. Capture an `attempt` record for **every TX burst and retry**, including zero accepted:
 
 `{kind, run, stream_id, seq, egress_port, queue_id, attempt_id, gate_ns, submit_before_ns, submit_after_ns, seen_next_ingress_seq, frontiers, consumed_dispatch, offered, accepted_count}`.
@@ -462,6 +476,29 @@ Each `rows[]` element has:
 The host exporter must copy fixed metadata into a preallocated bounded per-producer queue without synchronous JSON, hashing, allocation, locks shared with the oracle, disk writes or waits for consumer progress. Hash/serialize on observer cores. On queue overflow increment a reliable loss counter, latch invalidity and continue or perform an explicitly invalidating controlled stop. Never silently slow the DUT until the oracle catches up. Measure timestamp-on/export-on overhead, CPU, per-node bandwidth, queue occupancy and ring losses; capture-off results are diagnostic only.
 
 The canonical JSONL format is required for fixtures/interchange. A lossless compact adapter is permitted for hardware, but its exact binary layout, endian rules, lengths, checksum/seal and round-trip equivalence tests must be documented and pinned before qualification. **The following widths are capacity estimates, not a hidden binary ABI or proof JSON records are this small.** Do not implement a new binary protocol just to satisfy software M2; qualify measured encoded widths before M5.
+
+### Offline processing after capture
+
+The capture consumer may batch complete metadata into a versioned compact binary
+file for offline decoding after acquisition. The independent reference, custody
+checker and reporter need not run concurrently with the DUT. Preserve every
+ingress, admission, dispatch/frontier, TX attempt and terminal fact; timing
+sampling does not permit filtering this evidence at the producer.
+
+The transport must declare integer widths, byte order, record/block lengths,
+checksums and a final loss seal. Decode a deterministic capture into byte-identical
+native JSONL and normalized bundle streams before qualification. Missing blocks,
+truncation, checksum failures, queue loss or incomplete drain remain INCONCLUSIVE.
+The producer never performs disk I/O or waits for the consumer. Provision and
+measure the capture consumer's processing rate, real queue headroom and storage
+bandwidth at the registered packet rate and burst/retry distribution.
+
+Register the full raw-input spool's disk budget and lifecycle separately from
+final sampled witnesses. Offline reporting still consumes all evidence and may
+write only the registered main samples, diagnostics and seals in stream retention
+mode. A full raw-input spool is not permission to select physical full-retention
+output beyond the debug-window cap in section 10.2. Software capture results do
+not qualify physical PMDs, clocks, capture queues or storage.
 
 At 100G, 1500-byte IP plus one VLAN is 1,542 line bytes. Bidirectional rate is `2*100e9/(8*1542)=16.212711 Mpps`.
 

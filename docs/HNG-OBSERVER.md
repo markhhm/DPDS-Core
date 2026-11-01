@@ -463,6 +463,29 @@ The host exporter must copy fixed metadata into a preallocated bounded per-produ
 
 The canonical JSONL format is required for fixtures/interchange. A lossless compact adapter is permitted for hardware, but its exact binary layout, endian rules, lengths, checksum/seal and round-trip equivalence tests must be documented and pinned before qualification. **The following widths are capacity estimates, not a hidden binary ABI or proof JSON records are this small.** Do not implement a new binary protocol just to satisfy software M2; qualify measured encoded widths before M5.
 
+### Offline processing after capture
+
+The capture consumer may batch complete metadata into a versioned compact binary
+file for offline decoding after acquisition. The independent reference, custody
+checker and reporter need not run concurrently with the DUT. Preserve every
+ingress, admission, dispatch/frontier, TX attempt and terminal fact; timing
+sampling does not permit filtering this evidence at the producer.
+
+The transport must declare integer widths, byte order, record/block lengths,
+checksums and a final loss seal. Decode a deterministic capture into byte-identical
+native JSONL and normalized bundle streams before qualification. Missing blocks,
+truncation, checksum failures, queue loss or incomplete drain remain INCONCLUSIVE.
+The producer never performs disk I/O or waits for the consumer. Provision and
+measure the capture consumer's processing rate, real queue headroom and storage
+bandwidth at the registered packet rate and burst/retry distribution.
+
+Register the full raw-input spool's disk budget and lifecycle separately from
+final sampled witnesses. Offline reporting still consumes all evidence and may
+write only the registered main samples, diagnostics and seals in stream retention
+mode. A full raw-input spool is not permission to select physical full-retention
+output beyond the debug-window cap in section 10.2. Software capture results do
+not qualify physical PMDs, clocks, capture queues or storage.
+
 At 100G, 1500-byte IP plus one VLAN is 1,542 line bytes. Bidirectional rate is `2*100e9/(8*1542)=16.212711 Mpps`.
 
 Illustrative packed layouts, one per record class, derived from the field lists in sections 4–5. Common assumptions: `run`/`stream_id`/schema live in the stream header; each record carries `kind` (1 B) and envelope `seq` (8 B); line, app, clock and reason are manifest indices (2/2/1/1 B); a synthetic or probe `external_identity` is flow index u32 + occurrence u64 = 12 B and also gives `flow_id`; nullable small fields use a sentinel; each record pads to a multiple of 8 B. A wider production identity adds its extra width to every identity-bearing record and per-entry array below.

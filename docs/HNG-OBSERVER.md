@@ -229,6 +229,20 @@ At terminal drain: `rx_returned = tx_accepted + sum(disjoint_terminal_drops) + s
 
 ### 5.3 Actual-time port arbitration
 
+Native v2 binary capture may declare the optional raw-header field
+`capture_scope="physical"`. Only the explicit physical binary path may emit it:
+all selected devices must use a supported mlx5 hardware driver/bus pair
+(`mlx5_pci`/`pci` or `mlx5_auxiliary`/`auxiliary`), and the identity policy must be
+Stage 1. PCI membership alone does not distinguish a physical NIC from a
+paravirtual device. Missing scope preserves the legacy software-only header;
+v1 cannot declare this extension. The adapter must preserve physical scope in
+its capture summary and label NIC counter sources `physical-pmd`, retaining
+`overlapping_diagnostic` semantics. This declaration does not provide timestamp
+calibration, external packet observations, or G2 qualification. JSON pipe capture
+continues to reject physical devices. Software header and normalized bytes stay
+unchanged.
+
+
 Per-line release sorting alone cannot validate two lines sharing a port during outages. Capture an `attempt` record for **every TX burst and retry**, including zero accepted:
 
 `{kind, run, stream_id, seq, egress_port, queue_id, attempt_id, gate_ns, submit_before_ns, submit_after_ns, seen_next_ingress_seq, frontiers, consumed_dispatch, offered, accepted_count}`.

@@ -245,6 +245,67 @@ A fresh scheduler head, an enqueued but unconsumed handoff and a TX-pending pack
 
 Boundary example: LEO modeled release 190, cable 220, outage `[200,300)`, owner resumes at 250. Cable may transmit first while LEO holds; LEO retains expected release 190 and its extra wait counts as error. A modeled survivor dropped at actual time 250 is not intentional trace loss. Packets already accepted by the NIC cannot be recalled: observed wire transmission across an outage boundary is measured separately. Retain first/last-bit convention and uncertainty; do not promise precise wire silence from a software gate.
 
+#### Native v2 producer and ownership contract
+
+`hng-native-v2` uses one bounded SPSC observation queue per writer, including
+both RX and both TX owners. Producer IDs 0–4 retain their v1 meanings:
+0=RX0, 1=scheduler0, 2=scheduler1, 3=TX0, 4=control. Append 5=RX1 and 6=TX1.
+Seven fixed queues are allocated even when a smaller layout leaves some idle.
+The native header includes `layout` (`shared` or `per-direction`) and `ports`
+(the immutable ordered physical-port IDs). Owner indices refer to that list,
+not to numeric port IDs. Queue memory is `7*K*R` for capacity K and native
+record size R, excluding queue metadata and allocator overhead.
+
+The adapter preserves native v2 actors in `extensions.native_observer_v2`,
+with `{producer,producer_seq,order}`. Reject conflicting v1/v2 provenance.
+Continue reading native v1 with its original five-producer contract; producer
+5 remains invalid in native v1 and in `native_observer_v1` provenance.
+Neither version permits repairing dropped records by resequencing.
+
+For v2 host evidence, every registered handoff queue declares
+`extensions.native_actors` with `producer` and `consumer` objects, each
+`{stream_id,producer}`. These bind the scheduler and TX actors, respectively.
+For example, per-direction `handoff-0` binds scheduler ID 1 to TX ID 3, and
+`handoff-1` binds scheduler ID 2 to TX ID 6. In a shared TX layout, both queues
+may bind to TX ID 3. Actor bindings must agree with the native layout and the
+registered ingress-to-egress line mapping; port IDs need not be contiguous.
+An unknown actor, conflicting binding, or unregistered queue cannot establish
+conclusive custody. Multiple writers may not share an SPSC queue.
+
+Native v2 provenance also identifies the stage that can attest a record.
+RX actors emit packets, frontiers and ENDs; schedulers emit offers, dispatches,
+and model-loss, storage, invalid-input and shutdown terminals. Handoff-loss
+terminals can come from RX or scheduler actors. TX actors emit attempts,
+terminal TX drops and missed-deadline outage drops; control emits counters.
+Enforce these stage/reason constraints on both raw and normalized evidence.
+A wrong-stage actor cannot establish complete or conclusive custody.
+
+Each attempt retains the complete registered `consumed_dispatch` map. Prefixes
+are **owner-local**: a dedicated TX owner reports zero for unowned queues.
+That zero neither claims the queue nor resets its actual owner's progress.
+Only the bound consumer may advance a queue's prefix; its prefix must remain
+monotone and within the successfully dispatched prefix. Reject nonzero foreign
+prefixes, missing queue entries, ownership changes and consumed-prefix holes.
+Do not invent another owner's prefix by copying later observations. Shared TX
+owners continue to validate all queues bound to them. Zero/partial acceptance
+retains each line's unaccepted suffix without transferring custody twice.
+
+Snapshots still explicitly cover all registered inputs. Dispatch safety needs
+a consumed closed frontier or END from every input whose configured lines can
+feed the selected egress. An unrelated direction's unknown frontier remains
+unknown and does not block this dispatch; an unknown relevant frontier does.
+Frontiers and consumption must never be inferred from a clock read alone.
+
+RX packet, frontier, identity-error, terminal and END records use the same RX
+actor. TX attempts and terminal records use their TX actor. Each port has one
+RX owner and each egress one TX owner; validate ownership before launch. Keep
+the registered port list immutable during capture and reject unknown END ports.
+Per-writer loss counters, global reservation order and bounded shutdown remain
+mandatory. Queue overflow, abandoned reservations or incomplete drain prevent
+complete evidence. Keep seven-lcore capture rejected at startup until producer,
+adapter, ownership and concurrent software integration tests pass. Native v2
+does not change the runtime `hng-g2-report-v1` format or qualify physical G2.
+
 ## 6. Complete order checks and bounded processing
 
 Use full receiver identities, including unsampled traffic, to check: no duplicate delivery; all model survivors delivered or explicitly failed; only intended Q/trace identities absent; per-line stable release order; ordinary and late subsequence order; allowed late overtakes; and actual port arbitration where required. Exact whole-port sorting is valid only when no actual-time gate bypass changes eligibility. Preserve Stage 1 per-flow high-water out-of-order counts as diagnostics; the P1 independent permutation check is stronger. A flow crossing lines has no invented cross-line FIFO guarantee: evaluate its registered routing/epoch contract, not a new scheduler policy.

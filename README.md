@@ -200,12 +200,84 @@ and report source-versus-configured late-run distributions. A synthetic quick
 start requires only Python and NumPy, without DPDK or a NIC. These tools do not
 certify cross-engine packet deadlines, outage reconstruction or hardware timing.
 
+## Hardware planning
+
+The standalone library needs no NIC, DPDK or hugepages. Real-packet memory
+requirements come from the matching DPDS host's pool calculator.
+Set `DPDS_SRC` to an absolute host checkout path and build its performance tools first.
+Keep its DPDK runtime library path available.
+
+```sh
+"$DPDS_SRC/build/hng-pool-calc" --lines-per-port 1
+"$DPDS_SRC/build/hng-pool-calc" --lines-per-port 2
+```
+
+Defaults describe two ingress pools.
+They use 100 Gbit/s, t=142 ms, delta=320 ms,
+Q=50 ms, 1,522-byte L2 frames, seven lcores and 2 MiB pages.
+Early budgets were **20 GiB minimum / 40 GiB recommended**.
+They rounded 19.432 / 38.826 GiB of pools for one / two lines per direction.
+The [earlier host](https://github.com/markhhm/DPDS/tree/749d5543595bcd8fd2fd53eb0dd15fd1fc1c2182)
+used a 2,496-byte stride. Current host observer metadata gives a 2,624-byte
+stride and approximately 20.43 / 40.81 GiB for those same pools.
+
+The pools alone now need at least 21 / 41 whole GiB, plus EAL headroom.
+Reserve separate ordinary RAM for core and observer metadata.
+Treat 20 / 40 GiB as historical budgets, not sufficient current reservations.
+Recompute for the actual frame, trace, port and NUMA layout. These estimates
+do not qualify a physical allocation or sustained throughput.
+
+## How to check accuracy (software-only)
+
+Use the NumPy environment described under [checks](#checks-pre-push-hook-and-ci).
+Set `PYTHON` to its absolute interpreter path. All commands here use software
+fixtures or virtual scheduler time. They do not establish wire precision or G2.
+
+### M2: injected faults in the host reporter
+
+```sh
+(cd "$DPDS_SRC" && prlimit --as=4294967296 -- "$PYTHON" -m unittest \
+  tools.g2.tests.test_report tools.g2.tests.test_protocol tools.g2.tests.test_calibration)
+```
+
+The host owns these independent checks. They inject packet order/identity,
+timestamp, capture-gap and calibration errors and assert their required verdicts.
+
+### M3: a registered canonical replay
+
+Run from this repository root. Set `RAW` to downloaded Garcia ZIPs and `OUT`
+to a new external evidence directory. This checks one registered 11 s UL
+corridor-A case with the adopted 0.01 ms converter.
+
+```sh
+mkdir -p "$OUT"
+CARGO_BUILD_JOBS=1 prlimit --as=4294967296 -- cargo build --locked --release --bin trace_replay
+prlimit --as=4294967296 -- "$PYTHON" scripts/garcia_trace.py \
+  "$RAW/2025-04-16-09-26-16__ul.csv.zip" "$OUT/canonical.json" \
+  --start-ns 38000000000 --duration-ns 11000000000 --corridor A --seed 1 \
+  --queue-drain-ns 1000000 --pool docs/reports/m3-canonical-pool-11s.json --pool-index 8
+prlimit --as=4294967296 -- "$PYTHON" scripts/replay_trace.py \
+  "$OUT/canonical.json" --source "$RAW/2025-04-16-09-26-16__ul.csv.zip" \
+  --runner target/release/trace_replay --output "$OUT/replay.json"
+```
+
+Inspect oracle mismatches and `realized_lateness`. One case is not the full
+canonical verdict. The [complete report](docs/reports/m3-canonical.md) retains
+56 cases: 24 PASS, 0 FAIL and 32 INCONCLUSIVE, including final-core and pcap checks.
+Keep insufficient windows and use the registered method for larger profiles.
+
+### M4: performance and allocation
+
+Use the existing microbenchmark command below and host calculator commands
+above. Timings describe CPU execution. Pool outputs describe reservations.
+Neither establishes physical timing accuracy.
+
 ## Performance microbenchmarks
 
 `examples/hng_bench.rs` measures the scheduling core without DPDK or a NIC:
 
 ```sh
-cargo run --release --locked --example hng_bench -- --mode both --repeat 3
+CARGO_BUILD_JOBS=1 prlimit --as=4294967296 -- cargo run --release --locked --example hng_bench -- --mode both --repeat 3
 ```
 
 Each sample times one batch (default 1024 packets) of admission plus every

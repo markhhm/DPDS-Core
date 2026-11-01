@@ -190,9 +190,10 @@ The HNG engine, C ABI, VLAN-line configuration and normalized trace schema are
 documented in [docs/HNG-API.md](docs/HNG-API.md). Its contract is
 [docs/HNG-DESIGN.md](docs/HNG-DESIGN.md). The upstream APIs above remain available.
 
-The [trace pipeline inventory](docs/reports/m3-trace-inventory.md) records source
-contracts and unresolved replay semantics. Garcia configured-interval conversion
-is available; other source adapters and end-to-end replay acceptance are pending.
+The [trace pipeline inventory](docs/reports/m3-trace-inventory.md) records source contracts.
+The [trace semantics](docs/TRACE-SEMANTICS.md) and
+[canonical report](docs/reports/m3-canonical.md) describe the adopted 0.01 ms
+Garcia replay and final-core verification. Other adapters are outside this assessment.
 
 The offline [Garcia trace tools](docs/TRACE-TOOLS.md) convert a selected raw ZIP
 window to `hng-trace-v1`, compare configured intervals with TheaterQ CSV rows,
@@ -208,21 +209,21 @@ Set `DPDS_SRC` to an absolute host checkout path and build its performance tools
 Keep its DPDK runtime library path available.
 
 ```sh
-"$DPDS_SRC/build/hng-pool-calc" --lines-per-port 1
 "$DPDS_SRC/build/hng-pool-calc" --lines-per-port 2
 ```
 
-Defaults describe two ingress pools.
-They use 100 Gbit/s, t=142 ms, delta=320 ms,
+The example uses 100 Gbit/s, t=142 ms, delta=320 ms,
 Q=50 ms, 1,522-byte L2 frames, seven lcores and 2 MiB pages.
-Early budgets were **20 GiB minimum / 40 GiB recommended**.
-They rounded 19.432 / 38.826 GiB of pools for one / two lines per direction.
+The early **20 GiB minimum** covered cable+LEO in one direction: 19.413 GiB.
+The **40 GiB recommendation** covered both directions: 38.826 GiB.
+
 The [earlier host](https://github.com/markhhm/DPDS/tree/749d5543595bcd8fd2fd53eb0dd15fd1fc1c2182)
 used a 2,496-byte stride. Current host observer metadata gives a 2,624-byte
-stride and approximately 20.43 / 40.81 GiB for those same pools.
+stride and approximately 20.405 / 40.81 GiB for those same pools.
 
 The pools alone now need at least 21 / 41 whole GiB, plus EAL headroom.
 Reserve separate ordinary RAM for core and observer metadata.
+Pool totals exclude the ordinary core heap included in the calculator's `total_gib`.
 Treat 20 / 40 GiB as historical budgets, not sufficient current reservations.
 Recompute for the actual frame, trace, port and NUMA layout. These estimates
 do not qualify a physical allocation or sustained throughput.

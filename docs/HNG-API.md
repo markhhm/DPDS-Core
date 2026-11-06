@@ -267,3 +267,24 @@ This is a bounded working set for CPU comparison, not a production memory
 plan or R_valid evidence. The traffic generator must count logical packets,
 including compact copies; freeing a source mbuf creates no new traffic credit.
 The production loader continues to require the full registered reserve.
+
+### M7 single-selection output ticket
+
+`hng_lines_peek_head` performs the same eligible `(release_ns, ingress_seq)`
+merge as the existing peek/pop functions but returns only the selected line,
+opaque payload, physical sequence, length, late FIFO and captured clock in
+`HngHead`. It does not mutate any line. No-head/invalid-array failures leave
+its output unchanged. The host materializes only after its TX free-slot budget.
+
+`hng_head_pop` consumes that selected FIFO head directly, without a second
+merged search or another expansion into the full `HngPacket`. It updates the
+same dequeue/storage counters and, for sealed input, releases service Q at the
+captured clock. Success clears the ticket's line pointer; duplicate or stale
+consumption fails before changing Q or counters. A sequence/payload/length
+mismatch is rejected. Existing functions and the classic host path are unchanged.
+
+The owner must keep every group handle live and serialize all access. It must
+not modify a ticket or mutate **any** group line between peek and pop (no
+admission, END, drain, abort, other pop or callback re-entry). Materializing
+host storage is permitted. The ticket is not transferable between owners.
+A host copy-out failure leaves the model head and ticket unconsumed for abort.

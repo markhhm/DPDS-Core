@@ -1141,3 +1141,97 @@ pub unsafe extern "C" fn hng_engine_load_for_perf(
         }
     }
 }
+
+/// One selected head, owned by one serialized scheduler until pop or cancel.
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct HngHead {
+    pub line: *mut Line,
+    pub packet_ptr: *mut std::ffi::c_void,
+    pub ingress_seq: u64,
+    pub clock_ns: u64,
+    pub packet_bytes: u32,
+    pub late: bool,
+}
+impl Default for HngHead {
+    fn default() -> Self {
+        Self {
+            line: std::ptr::null_mut(),
+            packet_ptr: std::ptr::null_mut(),
+            ingress_seq: 0,
+            clock_ns: 0,
+            packet_bytes: 0,
+            late: false,
+        }
+    }
+}
+/// Select one eligible merged head. Failure leaves out unchanged.
+/// # Safety
+/// Same arrays/ownership contract as hng_lines_pop_merged. No line in the
+/// group may mutate between selection and pop; the host may materialize only.
+#[no_mangle]
+pub unsafe extern "C" fn hng_lines_peek_head(
+    lines: *const *mut Line,
+    watermarks: *const u64,
+    n: usize,
+    now_ns: u64,
+    limit_ns: u64,
+    out: *mut HngHead,
+) -> isize {
+    if n == 0 || lines.is_null() || watermarks.is_null() || out.is_null() {
+        return -1;
+    }
+    let lines = std::slice::from_raw_parts(lines, n);
+    let watermarks = std::slice::from_raw_parts(watermarks, n);
+    let mut best: Option<(usize, crate::hng::ReadyHead)> = None;
+    for (k, &line) in lines.iter().enumerate() {
+        let Some(line) = line.as_ref() else {
+            return -1;
+        };
+        if let Some(p) = line.buffer.ready_head(now_ns, watermarks[k]) {
+            if best.as_ref().is_none_or(|(_, old)| {
+                (p.release_ns, p.ingress_seq) < (old.release_ns, old.ingress_seq)
+            }) {
+                best = Some((k, p));
+            }
+        }
+    }
+    match best {
+        Some((k, p)) if p.release_ns <= limit_ns => {
+            *out = HngHead {
+                line: lines[k],
+                packet_ptr: p.packet_ptr,
+                ingress_seq: p.ingress_seq,
+                clock_ns: now_ns,
+                packet_bytes: p.packet_bytes,
+                late: p.late,
+            };
+            k as isize
+        }
+        _ => -1,
+    }
+}
+/// Consume the selected FIFO head without scanning the group again.
+/// # Safety
+/// The ticket came from peek_head, all group handles remain live and owned
+/// by this caller, with no intervening model mutation. Output stays host-owned.
+#[no_mangle]
+pub unsafe extern "C" fn hng_head_pop(head: *mut HngHead) -> bool {
+    let Some(head) = head.as_mut() else {
+        return false;
+    };
+    let Some(line) = head.line.as_mut() else {
+        return false;
+    };
+    if !line.buffer.pop_head(
+        head.clock_ns,
+        head.late,
+        head.ingress_seq,
+        head.packet_ptr,
+        head.packet_bytes,
+    ) {
+        return false;
+    }
+    head.line = std::ptr::null_mut();
+    true
+}

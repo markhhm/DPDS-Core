@@ -178,6 +178,16 @@ struct Stored {
     late: bool,
 }
 
+/// Only the fields the M7 host needs before materializing a selected head.
+#[derive(Copy, Clone)]
+pub(crate) struct ReadyHead {
+    pub packet_ptr: *mut c_void,
+    pub ingress_seq: u64,
+    pub release_ns: u64,
+    pub packet_bytes: u32,
+    pub late: bool,
+}
+
 impl Stored {
     fn new(p: &HngPacket) -> Self {
         Self {
@@ -719,6 +729,61 @@ impl HngBuffer {
         } else {
             Some(p)
         }
+    }
+
+    /// M7 selection avoids expanding every candidate to the full FFI packet.
+    pub(crate) fn ready_head(&self, now_ns: u64, watermark_ns: u64) -> Option<ReadyHead> {
+        let p = if self.ordinary_first() {
+            self.ordinary.front()
+        } else {
+            self.late.front()
+        }?;
+        if p.release_ns > now_ns
+            || (!self.input_complete
+                && p.release_ns > watermark_ns.saturating_add(self.minimum_delay_ns))
+        {
+            return None;
+        }
+        Some(ReadyHead {
+            packet_ptr: p.packet_ptr,
+            ingress_seq: p.ingress_seq,
+            release_ns: p.release_ns,
+            packet_bytes: p.packet_bytes,
+            late: p.late,
+        })
+    }
+
+    /// Consume exactly a previously selected FIFO head. Rejected/stale tickets
+    /// do not advance Q or alter counters. The group cannot mutate meanwhile.
+    pub(crate) fn pop_head(
+        &mut self,
+        now_ns: u64,
+        late: bool,
+        seq: u64,
+        pointer: *mut c_void,
+        bytes: u32,
+    ) -> bool {
+        let fifo = if late { &self.late } else { &self.ordinary };
+        let Some(p) = fifo.front() else { return false };
+        if p.ingress_seq != seq
+            || p.packet_ptr != pointer
+            || p.packet_bytes != bytes
+            || p.release_ns > now_ns
+        {
+            return false;
+        }
+        if self.input_complete {
+            self.release_q(now_ns);
+        }
+        let p = if late {
+            self.late.pop_front()
+        } else {
+            self.ordinary.pop_front()
+        }
+        .expect("validated FIFO head");
+        self.stats.dequeued_l2_bytes += (u64::from(p.packet_bytes) + 4).max(64);
+        self.stats.storage_bytes -= u64::from(p.packet_bytes);
+        true
     }
 
     pub fn try_pop(&mut self, now_ns: u64, input_watermark_ns: u64) -> Option<HngPacket> {

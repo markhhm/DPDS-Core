@@ -163,3 +163,93 @@ line, done serially before RX. Before reserving, load compares the total with
 does not fit. That is a snapshot: memory taken by other processes afterwards
 can still lead to an out-of-memory kill under overcommit. Where
 `/proc/meminfo` is missing, only the allocation itself is checked.
+
+## Explicit M7 registered storage
+
+A fixed-model line can opt into `m7-hybrid-v1` with an optional `m7_storage`
+object. An absent field preserves the original minimum-frame envelope,
+model decisions and C ABI. Explicit `null` is rejected. Trace models retain
+their existing path and cannot use this registration.
+
+```json
+"m7_storage": {
+  "mode": "m7-hybrid-v1",
+  "threshold_l2": 1024,
+  "hold_ns": 10000000,
+  "window_ns": 10000000,
+  "offered_bps": 100000000000,
+  "margin_numerator": 5,
+  "margin_denominator": 4,
+  "composition": [
+    {"l2_bytes": 64, "weight": 1},
+    {"l2_bytes": 512, "weight": 1},
+    {"l2_bytes": 1522, "weight": 1}
+  ]
+}
+```
+
+Sizes are charged L2 bytes including FCS; stored bytes are L-4 and wire
+bytes L+20. Threshold defaults to 1024 and hold to 10 ms. H is a registered
+failure threshold, not a measured scheduling bound. W is fixed at 10 ms
+and the physical reserve margin at 5/4. Register 1..16 distinct sizes in
+64..1522, with positive integer weights totaling at most 65535. C must
+be positive and no greater than the registered offered rate, at most 100G.
+Unknown keys, invalid ranges and unrepresentable quota arithmetic fail
+before constructing the payload queues.
+
+`hng_m7_storage_plan` calculates without constructing or prefaulting an
+engine. `hng_engine_m7_storage_info` returns an immutable startup plan for
+one line; legacy lines return false and leave the output unchanged. The
+existing `LineInfo` layout remains unchanged.
+
+For delay D=t+delta and hold H, let B=C*(D+H)/8e9, mean charged size muL,
+and mean wire size muW=muL+20; times are integer ns. For a per-packet resource
+cost r and its weighted average meanR, reserve:
+
+```text
+physical(r) = ceil(5/4 * (B*meanR/muW + Q*meanR/muL) + burst*max(r))
+bD = min(B, offered_bps*W/8e9)
+bQ = min(Q, offered_bps*W/8e9)
+window(r) = ceil((B-bD)*meanR/muW + bD*max(r/(L+20))
+               +(Q-bQ)*meanR/muL + bQ*max(r/L) + burst*max(r))
+live_limit(r) = min(physical(r), window(r))
+```
+
+Use r=1 for slots, the compact indicator for records, ceil((L-4)/64) for
+compact cells, and the noncompact indicator for retained normal mbufs.
+Physical reserves use 5/4, with W supplying additional logical occupancy
+limits. This is the intersection of both requirements. W is one cumulative
+skew allowance per residence domain, not a fresh allowance in every W-sized
+interval. Long-run traffic averages alone do not establish this resident
+composition guarantee. Exceeding a limit is a non-model storage failure,
+never an additional Q loss.
+
+The model's declared packet/frame capacities must cover the calculated
+physical slots; a host intending the smaller memory budget supplies exactly
+the derived counts. Core still prefaults its declared metadata allocation,
+then enforces the logical slot limit. Registered sizes are checked before
+selection. The host enforces record, cell and retained-mbuf limits.
+
+`hng_lines_offer_burst_storage` invokes its storage callback only for
+registered lines, after all model rejection gates and before committing
+service/Q or payload custody. Model Q drops never invoke it. The callback
+receives a call-scoped immutable `HngPacket`; it must copy required metadata
+and must not re-enter the engine. A non-NULL replacement pointer transfers
+payload custody until pop/abort. NULL leaves the source caller-owned and
+returns `StorageDrop`, without committing service/Q. Selection ordinals
+remain consumed, as for other storage failures. Classic lines in a mixed
+burst follow their original path. The original offer functions remain
+available for clients that own their payload storage directly.
+
+For materialization, first reserve TX handoff space, then use
+`hng_lines_peek_merged`. Failure leaves model custody intact. With one owner,
+the same explicit clock/watermarks/limit and no intervening model mutation,
+`hng_lines_pop_merged` returns exactly that head. The host recycles its stable
+storage tag only after this pop. Materialization failure must retain the
+record for honest INVALID/abort cleanup. It must not reset deadlines, hide
+loss as a model decision, or spin indefinitely. Existing retry, drain and
+ownership gates remain in force.
+
+The observer event schemas and native binary/JSONL contract do not change.
+Hosts report additional M7 storage resource counters separately from the
+fixed observer resource vector.

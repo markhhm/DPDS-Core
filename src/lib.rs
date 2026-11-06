@@ -19,6 +19,7 @@ pub mod dropper;
 pub mod hng;
 pub mod hng_engine;
 pub mod hng_perf;
+pub mod hng_storage;
 pub mod hng_trace;
 pub mod limiter;
 

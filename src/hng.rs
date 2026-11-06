@@ -302,6 +302,8 @@ pub struct HngBuffer {
     next_selection_seq: u64,
     input_complete: bool,
     pub(crate) frame_envelope: (u64, u64),
+    pub(crate) registered_lengths: Option<Vec<u64>>,
+    pub(crate) registered_slot_limit: Option<usize>,
     stats: HngStats,
     trace: Option<TracePolicy>,
     trace_cursor: usize,
@@ -350,6 +352,8 @@ impl HngBuffer {
             next_selection_seq: 0,
             input_complete: false,
             frame_envelope: (64, u64::MAX),
+            registered_lengths: None,
+            registered_slot_limit: None,
             stats: HngStats::default(),
             trace: None,
             trace_cursor: 0,
@@ -392,7 +396,49 @@ impl HngBuffer {
         seq: u64,
         record: Option<&mut HngPacket>,
     ) -> PushResult {
-        let result = self.admit(packet_ptr, packet_bytes, now_ns, seq, record);
+        // No callback: payload pointers remain opaque in the classic safe API.
+        let result = self.admit(
+            packet_ptr,
+            packet_bytes,
+            now_ns,
+            seq,
+            record,
+            None,
+            std::ptr::null_mut(),
+        );
+        self.record_outcome(result, packet_bytes)
+    }
+
+    /// Accepted-only storage conversion, after model gates and before commit.
+    /// A NULL callback result is StorageDrop and leaves source ownership with
+    /// the caller. The callback must not re-enter or mutate this buffer.
+    /// # Safety
+    /// The callback and context must stay live for this call; on success its
+    /// returned payload must stay live until popped by this owner.
+    #[allow(clippy::too_many_arguments)]
+    pub unsafe fn push_with_storage(
+        &mut self,
+        packet_ptr: *mut c_void,
+        packet_bytes: u32,
+        now_ns: u64,
+        seq: u64,
+        record: Option<&mut HngPacket>,
+        commit: crate::hng_storage::HngStorageCommit,
+        context: *mut c_void,
+    ) -> PushResult {
+        let result = self.admit(
+            packet_ptr,
+            packet_bytes,
+            now_ns,
+            seq,
+            record,
+            commit,
+            context,
+        );
+        self.record_outcome(result, packet_bytes)
+    }
+
+    fn record_outcome(&mut self, result: PushResult, packet_bytes: u32) -> PushResult {
         match result {
             PushResult::Accepted => {}
             PushResult::QDrop => {
@@ -420,6 +466,7 @@ impl HngBuffer {
         result
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn admit(
         &mut self,
         packet_ptr: *mut c_void,
@@ -427,6 +474,8 @@ impl HngBuffer {
         now_ns: u64,
         seq: u64,
         record: Option<&mut HngPacket>,
+        commit: crate::hng_storage::HngStorageCommit,
+        context: *mut c_void,
     ) -> PushResult {
         if self.input_complete
             || packet_ptr.is_null()
@@ -439,7 +488,13 @@ impl HngBuffer {
         }
         // mbuf length excludes FCS; Ethernet pads to 60 bytes before FCS.
         let l2_bytes = (u64::from(packet_bytes) + 4).max(64);
-        if l2_bytes < self.frame_envelope.0 || l2_bytes > self.frame_envelope.1 {
+        if l2_bytes < self.frame_envelope.0
+            || l2_bytes > self.frame_envelope.1
+            || self
+                .registered_lengths
+                .as_ref()
+                .is_some_and(|lengths| !lengths.contains(&l2_bytes))
+        {
             return PushResult::InvalidInput;
         }
         self.release_q(now_ns);
@@ -507,9 +562,12 @@ impl HngBuffer {
                 }
             }
         }
-        if self.service.len() >= self.config.storage_capacity_packets
+        let storage_limit = self
+            .registered_slot_limit
+            .unwrap_or(self.config.storage_capacity_packets);
+        if self.service.len() >= storage_limit
             || (trace_drop.is_none()
-                && (self.len() >= self.config.storage_capacity_packets
+                && (self.len() >= storage_limit
                     || u64::from(packet_bytes) > self.config.storage_capacity_bytes
                     || self.stats.storage_bytes
                         > self.config.storage_capacity_bytes - u64::from(packet_bytes)))
@@ -520,6 +578,30 @@ impl HngBuffer {
         let Some(clamp_total_ns) = self.stats.clamp_extra_ns.checked_add(clamp_extra_ns) else {
             return PushResult::InvalidInput;
         };
+        let mut packet = HngPacket {
+            packet_ptr,
+            ingress_seq: seq,
+            selection_seq,
+            service_ns,
+            deadline_ns,
+            release_ns,
+            clamp_extra_ns,
+            packet_bytes,
+            l2_bytes,
+            wire_bytes,
+            late,
+        };
+        if trace_drop.is_none() {
+            if let Some(commit) = commit {
+                // Callback custody is transactional. No fallible model checks
+                // remain between a successful conversion and the queue commit.
+                let stored = unsafe { commit(&packet, context) };
+                if stored.is_null() {
+                    return PushResult::StorageDrop;
+                }
+                packet.packet_ptr = stored;
+            }
+        }
         self.finish = finish;
         self.trace_cursor = trace_cursor;
         self.service.push_back(Service {
@@ -534,19 +616,6 @@ impl HngBuffer {
         if self.trace.is_some() {
             self.trace_deadline_ns = deadline_ns;
         }
-        let packet = HngPacket {
-            packet_ptr,
-            ingress_seq: seq,
-            selection_seq,
-            service_ns,
-            deadline_ns,
-            release_ns,
-            clamp_extra_ns,
-            packet_bytes,
-            l2_bytes,
-            wire_bytes,
-            late,
-        };
         if let Some(r) = record {
             *r = packet;
         }

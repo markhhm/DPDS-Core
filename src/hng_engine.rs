@@ -27,6 +27,17 @@ struct LineConfig {
     model: HngConfig,
     envelope: Envelope,
     trace: Option<TraceFile>,
+    #[serde(default, deserialize_with = "registered_m7")]
+    m7_storage: Option<crate::hng_storage::M7StorageRegistration>,
+}
+
+fn registered_m7<'de, D>(
+    deserializer: D,
+) -> Result<Option<crate::hng_storage::M7StorageRegistration>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    crate::hng_storage::M7StorageRegistration::deserialize(deserializer).map(Some)
 }
 
 #[derive(Deserialize)]
@@ -138,6 +149,8 @@ pub struct LineInfo {
 pub struct Line {
     pub info: LineInfo,
     pub(crate) buffer: HngBuffer,
+    pub m7_storage: Option<crate::hng_storage::M7StorageRegistration>,
+    pub m7_info: Option<crate::hng_storage::M7StorageInfo>,
 }
 
 impl Line {
@@ -182,6 +195,96 @@ impl Engine {
         Self::from_json_at(json, Path::new("."))
     }
 
+    /// Software-only closed-loop fixture. Core metadata capacities and model
+    /// parameters stay unchanged; only the external backing reserve is bounded
+    /// by the harness's enforced per-line in-flight population. Production
+    /// loading never uses this entry point.
+    pub fn from_json_for_perf(json: &str, max_live_packets: usize) -> Result<Self, String> {
+        Self::from_json_for_perf_at(json, Path::new("."), max_live_packets)
+    }
+
+    fn from_json_for_perf_at(json: &str, base: &Path, bound: usize) -> Result<Self, String> {
+        let config: ConfigFile = serde_json::from_str(json).map_err(|e| e.to_string())?;
+        if config.lines.iter().all(|l| l.m7_storage.is_none()) {
+            return Self::from_json_at(json, base);
+        }
+        if bound == 0 || bound >= u32::MAX as usize {
+            return Err("invalid software perf population bound".into());
+        }
+        let mut registrations = Vec::new();
+        for line in &config.lines {
+            let registered = if let Some(m7) = &line.m7_storage {
+                if line.trace.is_some()
+                    || bound > line.model.storage_capacity_packets
+                    || m7.composition.iter().any(|c| {
+                        c.l2_bytes < line.envelope.min_q_bytes
+                            || c.l2_bytes > line.envelope.max_q_bytes
+                    })
+                {
+                    return Err("perf population/registration is outside the model reserve".into());
+                }
+                let delay = line
+                    .model
+                    .t_ns
+                    .checked_add(line.model.delta_ns)
+                    .ok_or("delay overflow")?;
+                let mut plan = m7.plan(
+                    line.model.c_bps,
+                    line.model.q_bytes,
+                    delay,
+                    line.envelope.burst_bound_packets,
+                )?;
+                let n = bound as u64;
+                let small = m7.composition.iter().any(|c| c.l2_bytes <= m7.threshold_l2);
+                let large = m7.composition.iter().any(|c| c.l2_bytes > m7.threshold_l2);
+                let max_cells = m7
+                    .composition
+                    .iter()
+                    .filter(|c| c.l2_bytes <= m7.threshold_l2)
+                    .map(|c| (c.l2_bytes - 4).div_ceil(64))
+                    .max()
+                    .unwrap_or(0);
+                plan.slots = plan.slots.min(n);
+                plan.records = plan.records.min(if small { n } else { 0 });
+                plan.cells = plan.cells.min(n * u64::from(max_cells));
+                plan.normal_mbufs = plan.normal_mbufs.min(if large { n } else { 0 });
+                plan.slot_limit = plan.slot_limit.min(plan.slots);
+                plan.record_limit = plan.record_limit.min(plan.records);
+                plan.cell_limit = plan.cell_limit.min(plan.cells);
+                plan.normal_limit = plan.normal_limit.min(plan.normal_mbufs);
+                plan.perf_population_bound = n;
+                Some((m7.clone(), plan))
+            } else {
+                None
+            };
+            registrations.push(registered);
+        }
+        // Validate/prefault the original fixture's conservative Core reserve.
+        // No production configuration is rewritten or weakened.
+        let mut legacy: serde_json::Value =
+            serde_json::from_str(json).map_err(|e| e.to_string())?;
+        for line in legacy["lines"].as_array_mut().ok_or("missing lines")? {
+            line.as_object_mut()
+                .ok_or("invalid line")?
+                .remove("m7_storage");
+        }
+        let mut engine = Self::from_json_at(&legacy.to_string(), base)?;
+        for (line, registration) in engine.lines.iter_mut().zip(registrations) {
+            if let Some((m7, plan)) = registration {
+                line.buffer.registered_lengths = Some(
+                    m7.composition
+                        .iter()
+                        .map(|c| u64::from(c.l2_bytes))
+                        .collect(),
+                );
+                line.buffer.registered_slot_limit = Some(plan.slot_limit as usize);
+                line.m7_storage = Some(m7);
+                line.m7_info = Some(plan);
+            }
+        }
+        Ok(engine)
+    }
+
     pub fn from_json_at(json: &str, base: &Path) -> Result<Self, String> {
         let config: ConfigFile = serde_json::from_str(json).map_err(|e| e.to_string())?;
         if config.schema != "hng-v1" || config.lines.is_empty() || config.lines.len() > 4 {
@@ -212,6 +315,12 @@ impl Engine {
                 );
             }
             c.model.validate()?;
+            if let Some(m7) = &c.m7_storage {
+                m7.validate()?;
+                if c.trace.is_some() {
+                    return Err("M7 storage requires a fixed model".into());
+                }
+            }
             if c.envelope.min_q_bytes < 64
                 || c.envelope.max_q_bytes > 1522
                 || c.envelope.max_q_bytes < c.envelope.min_q_bytes
@@ -255,12 +364,34 @@ impl Engine {
                     .checked_add(c.model.delta_ns)
                     .ok_or("delay overflow")?
             };
-            let n = u128::from(c.model.c_bps) * u128::from(delay);
-            let d = 8_000_000_000u128 * (u128::from(c.envelope.min_q_bytes) + 20);
-            let need = u128::from(c.model.q_bytes / u64::from(c.envelope.min_q_bytes))
-                + u128::from(c.envelope.burst_bound_packets)
-                + n / d
-                + u128::from(n % d != 0);
+            let m7_info = c
+                .m7_storage
+                .as_ref()
+                .map(|m7| {
+                    if m7.composition.iter().any(|class| {
+                        class.l2_bytes < c.envelope.min_q_bytes
+                            || class.l2_bytes > c.envelope.max_q_bytes
+                    }) {
+                        return Err("M7 class is outside the line frame envelope".to_owned());
+                    }
+                    m7.plan(
+                        c.model.c_bps,
+                        c.model.q_bytes,
+                        delay,
+                        c.envelope.burst_bound_packets,
+                    )
+                })
+                .transpose()?;
+            let need = if let Some(plan) = &m7_info {
+                u128::from(plan.slots)
+            } else {
+                let n = u128::from(c.model.c_bps) * u128::from(delay);
+                let d = 8_000_000_000u128 * (u128::from(c.envelope.min_q_bytes) + 20);
+                u128::from(c.model.q_bytes / u64::from(c.envelope.min_q_bytes))
+                    + u128::from(c.envelope.burst_bound_packets)
+                    + n / d
+                    + u128::from(n % d != 0)
+            };
             if need > c.model.storage_capacity_packets as u128
                 || need * u128::from(c.envelope.max_q_bytes - 4)
                     > u128::from(c.model.storage_capacity_bytes)
@@ -293,8 +424,24 @@ impl Engine {
                 u64::from(c.envelope.min_q_bytes),
                 u64::from(c.envelope.max_q_bytes),
             );
+            if let Some(m7) = &c.m7_storage {
+                buffer.registered_lengths = Some(
+                    m7.composition
+                        .iter()
+                        .map(|c| u64::from(c.l2_bytes))
+                        .collect(),
+                );
+            }
+            if let Some(plan) = &m7_info {
+                buffer.registered_slot_limit = Some(plan.slot_limit as usize);
+            }
             names.push(c.name);
-            lines.push(Line { info, buffer });
+            lines.push(Line {
+                info,
+                buffer,
+                m7_storage: c.m7_storage,
+                m7_info,
+            });
         }
         Ok(Self { lines })
     }
@@ -842,5 +989,155 @@ pub unsafe extern "C" fn hng_lines_offer_burst(
                 records.add(i).as_mut(),
             )
         });
+    }
+}
+
+/// Immutable startup-only M7 resource plan; absent on legacy lines.
+/// Failure leaves `out` unchanged.
+/// # Safety
+/// Engine is NULL or live; caller serializes with mutation. `out` is NULL
+/// or points to writable M7StorageInfo. Call before borrowing line handles.
+#[no_mangle]
+pub unsafe extern "C" fn hng_engine_m7_storage_info(
+    engine: *const Engine,
+    line: usize,
+    out: *mut crate::hng_storage::M7StorageInfo,
+) -> bool {
+    if out.is_null() {
+        return false;
+    }
+    match engine
+        .as_ref()
+        .and_then(|e| e.lines.get(line))
+        .and_then(|l| l.m7_info)
+    {
+        Some(info) => {
+            *out = info;
+            true
+        }
+        None => false,
+    }
+}
+
+/// Offer a burst with accepted-only storage conversion for registered M7 lines.
+/// Classic lines use their original path, even in a mixed burst. The callback
+/// takes custody only on non-NULL success; it must not re-enter any line.
+/// # Safety
+/// Same array/ownership contract as hng_lines_offer_burst. Callback/context
+/// stay live throughout the call; replacement payloads stay live until pop.
+#[no_mangle]
+pub unsafe extern "C" fn hng_lines_offer_burst_storage(
+    lines: *const *mut Line,
+    line_index: *const u16,
+    packets: *const *mut std::ffi::c_void,
+    bytes: *const u32,
+    arrivals_ns: *const u64,
+    seqs: *const u64,
+    n: usize,
+    results: *mut PushResult,
+    records: *mut HngPacket,
+    commit: crate::hng_storage::HngStorageCommit,
+    context: *mut std::ffi::c_void,
+) {
+    for i in 0..n {
+        let line = *lines.add(usize::from(*line_index.add(i)));
+        *results.add(i) = line.as_mut().map_or(PushResult::InvalidInput, |l| {
+            if l.m7_info.is_some() {
+                if commit.is_none() {
+                    return PushResult::InvalidInput;
+                }
+                l.buffer.push_with_storage(
+                    *packets.add(i),
+                    *bytes.add(i),
+                    *arrivals_ns.add(i),
+                    *seqs.add(i),
+                    records.add(i).as_mut(),
+                    commit,
+                    context,
+                )
+            } else {
+                l.buffer.push_with_record(
+                    *packets.add(i),
+                    *bytes.add(i),
+                    *arrivals_ns.add(i),
+                    *seqs.add(i),
+                    records.add(i).as_mut(),
+                )
+            }
+        });
+    }
+}
+
+/// Inspect the merged eligible head without relinquishing model custody.
+/// With the same owner, clock, watermarks and limit, and no intervening model
+/// mutation, pop_merged returns exactly this head after storage materializes.
+/// # Safety
+/// Same distinct live handle/array contract as hng_lines_pop_merged. All calls
+/// for these handles must be serialized by their owner. Out is writable.
+#[no_mangle]
+pub unsafe extern "C" fn hng_lines_peek_merged(
+    lines: *const *mut Line,
+    watermarks: *const u64,
+    n: usize,
+    now_ns: u64,
+    limit_ns: u64,
+    out: *mut HngPacket,
+) -> isize {
+    if n == 0 || lines.is_null() || watermarks.is_null() || out.is_null() {
+        return -1;
+    }
+    let lines = std::slice::from_raw_parts(lines, n);
+    let watermarks = std::slice::from_raw_parts(watermarks, n);
+    let mut best: Option<(usize, HngPacket)> = None;
+    for (k, &line) in lines.iter().enumerate() {
+        let Some(line) = line.as_ref() else {
+            return -1;
+        };
+        if let Some(packet) = line.buffer.ready(now_ns, watermarks[k]) {
+            if best.as_ref().is_none_or(|(_, old)| {
+                (packet.release_ns, packet.ingress_seq) < (old.release_ns, old.ingress_seq)
+            }) {
+                best = Some((k, packet));
+            }
+        }
+    }
+    match best {
+        Some((k, p)) if p.release_ns <= limit_ns => {
+            *out = p;
+            k as isize
+        }
+        _ => -1,
+    }
+}
+
+/// Software-only closed-loop loader; never used by the production binary.
+/// The harness must enforce the bound on live packets, including copied ones.
+/// Core model parameters and metadata capacities stay exactly as registered.
+/// # Safety
+/// Path is a valid NUL-terminated string, or NULL. Returned ownership and
+/// cleanup requirements are identical to hng_engine_load.
+#[no_mangle]
+pub unsafe extern "C" fn hng_engine_load_for_perf(
+    path: *const c_char,
+    max_live_packets: usize,
+) -> *mut Engine {
+    let result = (|| {
+        if path.is_null() {
+            return Err("null config path".to_owned());
+        }
+        let path = CStr::from_ptr(path).to_str().map_err(|e| e.to_string())?;
+        let json = fs::read_to_string(path).map_err(|e| e.to_string())?;
+        Engine::from_json_for_perf_at(
+            &json,
+            Path::new(path).parent().unwrap_or(Path::new(".")),
+            max_live_packets,
+        )
+    })();
+    match result {
+        Ok(e) => Box::into_raw(Box::new(e)),
+        Err(e) => {
+            eprintln!("HNG configuration error: {e}");
+            std::ptr::null_mut()
+        }
     }
 }

@@ -49,7 +49,6 @@ impl M7StorageRegistration {
             || self.hold_ns == 0
             || self.window_ns != 10_000_000
             || self.offered_bps == 0
-            || self.offered_bps > 100_000_000_000
             || self.margin_numerator != 5
             || self.margin_denominator != 4
             || self.composition.is_empty()
@@ -95,6 +94,8 @@ pub struct M7StorageInfo {
     pub record_limit: u64,
     pub cell_limit: u64,
     pub normal_limit: u64,
+    /// Nonzero only in the software-only population-bounded perf loader.
+    pub perf_population_bound: u64,
 }
 
 // Checked exact fractions; malformed or unrepresentable registrations fail

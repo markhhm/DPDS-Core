@@ -347,3 +347,41 @@ fn explicit_null_is_not_a_silent_opt_out_from_new_configuration() {
         "absent field is legacy; explicit null is invalid"
     );
 }
+
+#[test]
+fn software_rate_profile_is_explicit_without_changing_the_production_defaults() {
+    let registration:dpds_core::hng_storage::M7StorageRegistration=serde_json::from_str(
+        r#"{"mode":"m7-hybrid-v1","offered_bps":400000000000,"composition":[{"l2_bytes":1522,"weight":1}]}"#
+    ).unwrap();
+    assert!(registration
+        .plan(400_000_000_000, 1_572_864, 2000, 64)
+        .is_ok());
+}
+
+#[test]
+fn perf_population_bound_cannot_relax_the_production_loader() {
+    let mut config: serde_json::Value =
+        serde_json::from_str(include_str!("fixtures/m7-tiny.json")).unwrap();
+    config["lines"][0]["m7_storage"]["hold_ns"] = 1_000_000_000u64.into();
+    let json = config.to_string();
+    assert!(
+        Engine::from_json(&json).is_err(),
+        "production requires the full residence reserve"
+    );
+    let perf = Engine::from_json_for_perf(&json, 2).unwrap();
+    let info = perf.lines[0].m7_info.unwrap();
+    assert_eq!(
+        (info.slots, info.records, info.cells, info.normal_mbufs),
+        (2, 2, 16, 2)
+    );
+    assert_eq!(info.perf_population_bound, 2);
+    assert_eq!(
+        perf.lines[0].info.storage_capacity_packets, 19,
+        "model metadata reserve is unchanged"
+    );
+    assert!(Engine::from_json_for_perf(&json, 0).is_err());
+    assert!(
+        Engine::from_json_for_perf(&json, 20).is_err(),
+        "population must fit the declared model reserve"
+    );
+}

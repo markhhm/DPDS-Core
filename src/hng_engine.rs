@@ -195,6 +195,96 @@ impl Engine {
         Self::from_json_at(json, Path::new("."))
     }
 
+    /// Software-only closed-loop fixture. Core metadata capacities and model
+    /// parameters stay unchanged; only the external backing reserve is bounded
+    /// by the harness's enforced per-line in-flight population. Production
+    /// loading never uses this entry point.
+    pub fn from_json_for_perf(json: &str, max_live_packets: usize) -> Result<Self, String> {
+        Self::from_json_for_perf_at(json, Path::new("."), max_live_packets)
+    }
+
+    fn from_json_for_perf_at(json: &str, base: &Path, bound: usize) -> Result<Self, String> {
+        let config: ConfigFile = serde_json::from_str(json).map_err(|e| e.to_string())?;
+        if config.lines.iter().all(|l| l.m7_storage.is_none()) {
+            return Self::from_json_at(json, base);
+        }
+        if bound == 0 || bound >= u32::MAX as usize {
+            return Err("invalid software perf population bound".into());
+        }
+        let mut registrations = Vec::new();
+        for line in &config.lines {
+            let registered = if let Some(m7) = &line.m7_storage {
+                if line.trace.is_some()
+                    || bound > line.model.storage_capacity_packets
+                    || m7.composition.iter().any(|c| {
+                        c.l2_bytes < line.envelope.min_q_bytes
+                            || c.l2_bytes > line.envelope.max_q_bytes
+                    })
+                {
+                    return Err("perf population/registration is outside the model reserve".into());
+                }
+                let delay = line
+                    .model
+                    .t_ns
+                    .checked_add(line.model.delta_ns)
+                    .ok_or("delay overflow")?;
+                let mut plan = m7.plan(
+                    line.model.c_bps,
+                    line.model.q_bytes,
+                    delay,
+                    line.envelope.burst_bound_packets,
+                )?;
+                let n = bound as u64;
+                let small = m7.composition.iter().any(|c| c.l2_bytes <= m7.threshold_l2);
+                let large = m7.composition.iter().any(|c| c.l2_bytes > m7.threshold_l2);
+                let max_cells = m7
+                    .composition
+                    .iter()
+                    .filter(|c| c.l2_bytes <= m7.threshold_l2)
+                    .map(|c| (c.l2_bytes - 4).div_ceil(64))
+                    .max()
+                    .unwrap_or(0);
+                plan.slots = plan.slots.min(n);
+                plan.records = plan.records.min(if small { n } else { 0 });
+                plan.cells = plan.cells.min(n * u64::from(max_cells));
+                plan.normal_mbufs = plan.normal_mbufs.min(if large { n } else { 0 });
+                plan.slot_limit = plan.slot_limit.min(plan.slots);
+                plan.record_limit = plan.record_limit.min(plan.records);
+                plan.cell_limit = plan.cell_limit.min(plan.cells);
+                plan.normal_limit = plan.normal_limit.min(plan.normal_mbufs);
+                plan.perf_population_bound = n;
+                Some((m7.clone(), plan))
+            } else {
+                None
+            };
+            registrations.push(registered);
+        }
+        // Validate/prefault the original fixture's conservative Core reserve.
+        // No production configuration is rewritten or weakened.
+        let mut legacy: serde_json::Value =
+            serde_json::from_str(json).map_err(|e| e.to_string())?;
+        for line in legacy["lines"].as_array_mut().ok_or("missing lines")? {
+            line.as_object_mut()
+                .ok_or("invalid line")?
+                .remove("m7_storage");
+        }
+        let mut engine = Self::from_json_at(&legacy.to_string(), base)?;
+        for (line, registration) in engine.lines.iter_mut().zip(registrations) {
+            if let Some((m7, plan)) = registration {
+                line.buffer.registered_lengths = Some(
+                    m7.composition
+                        .iter()
+                        .map(|c| u64::from(c.l2_bytes))
+                        .collect(),
+                );
+                line.buffer.registered_slot_limit = Some(plan.slot_limit as usize);
+                line.m7_storage = Some(m7);
+                line.m7_info = Some(plan);
+            }
+        }
+        Ok(engine)
+    }
+
     pub fn from_json_at(json: &str, base: &Path) -> Result<Self, String> {
         let config: ConfigFile = serde_json::from_str(json).map_err(|e| e.to_string())?;
         if config.schema != "hng-v1" || config.lines.is_empty() || config.lines.len() > 4 {
@@ -1017,5 +1107,37 @@ pub unsafe extern "C" fn hng_lines_peek_merged(
             k as isize
         }
         _ => -1,
+    }
+}
+
+/// Software-only closed-loop loader; never used by the production binary.
+/// The harness must enforce the bound on live packets, including copied ones.
+/// Core model parameters and metadata capacities stay exactly as registered.
+/// # Safety
+/// Path is a valid NUL-terminated string, or NULL. Returned ownership and
+/// cleanup requirements are identical to hng_engine_load.
+#[no_mangle]
+pub unsafe extern "C" fn hng_engine_load_for_perf(
+    path: *const c_char,
+    max_live_packets: usize,
+) -> *mut Engine {
+    let result = (|| {
+        if path.is_null() {
+            return Err("null config path".to_owned());
+        }
+        let path = CStr::from_ptr(path).to_str().map_err(|e| e.to_string())?;
+        let json = fs::read_to_string(path).map_err(|e| e.to_string())?;
+        Engine::from_json_for_perf_at(
+            &json,
+            Path::new(path).parent().unwrap_or(Path::new(".")),
+            max_live_packets,
+        )
+    })();
+    match result {
+        Ok(e) => Box::into_raw(Box::new(e)),
+        Err(e) => {
+            eprintln!("HNG configuration error: {e}");
+            std::ptr::null_mut()
+        }
     }
 }

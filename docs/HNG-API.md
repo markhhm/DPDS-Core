@@ -193,7 +193,8 @@ bytes L+20. Threshold defaults to 1024 and hold to 10 ms. H is a registered
 failure threshold, not a measured scheduling bound. W is fixed at 10 ms
 and the physical reserve margin at 5/4. Register 1..16 distinct sizes in
 64..1522, with positive integer weights totaling at most 65535. C must
-be positive and no greater than the registered offered rate, at most 100G.
+be positive and no greater than the registered offered rate. Production M7
+inputs register 100G; software rate fixtures can register a synthetic rate.
 Unknown keys, invalid ranges and unrepresentable quota arithmetic fail
 before constructing the payload queues.
 
@@ -253,3 +254,16 @@ ownership gates remain in force.
 The observer event schemas and native binary/JSONL contract do not change.
 Hosts report additional M7 storage resource counters separately from the
 fixed observer resource vector.
+
+### Software-only population-bounded rate fixture
+
+`hng_engine_load_for_perf` is a separate loader for a closed-loop software
+harness. The production binary never calls it. It validates the original
+fixture's conservative Core capacities and leaves C, Q, t, delta, p, seed,
+and Core metadata allocation unchanged. Only external storage reserves and
+logical live limits are capped by a caller-enforced packet population.
+`perf_population_bound` is nonzero in its returned plan and must be reported.
+This is a bounded working set for CPU comparison, not a production memory
+plan or R_valid evidence. The traffic generator must count logical packets,
+including compact copies; freeing a source mbuf creates no new traffic credit.
+The production loader continues to require the full registered reserve.
